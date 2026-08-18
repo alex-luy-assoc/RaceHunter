@@ -3,30 +3,53 @@ namespace RaceHunter.ReferenceTarget.Inventory;
 internal sealed class ControlledCheckpoint
 {
     private readonly object sync = new();
-    private TaskCompletionSource<bool> release = NewRelease();
-    private int waiting;
+    private readonly Dictionary<string, CheckpointGate> gates = new(StringComparer.Ordinal);
 
-    public Task ReachAsync(string checkpoint, CancellationToken cancellationToken)
+    public async Task ReachAsync(string checkpoint, CancellationToken cancellationToken)
     {
-        if (!string.Equals(checkpoint, "oversell", StringComparison.Ordinal)) return Task.CompletedTask;
+        if (!checkpoint.StartsWith("oversell", StringComparison.Ordinal)) return;
 
-        Task waitTask;
+        CheckpointGate gate;
         lock (sync)
         {
-            waiting++;
-            if (waiting >= 2)
+            if (!gates.TryGetValue(checkpoint, out gate!))
             {
-                release.TrySetResult(true);
-                waiting = 0;
+                gate = new CheckpointGate();
+                gates.Add(checkpoint, gate);
             }
 
-            waitTask = release.Task;
-            if (waitTask.IsCompleted) release = NewRelease();
+            gate.Waiting++;
+            if (gate.Waiting >= 2)
+            {
+                gates.Remove(checkpoint);
+                gate.Release.TrySetResult();
+            }
         }
 
-        return waitTask.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        try
+        {
+            await gate.Release.Task.WaitAsync(TimeSpan.FromMilliseconds(250), cancellationToken);
+        }
+        catch (TimeoutException)
+        {
+            // A checkpoint is an exploration aid, not a requirement that valid low-concurrency schedules deadlock.
+        }
+        finally
+        {
+            lock (sync)
+            {
+                if (gates.TryGetValue(checkpoint, out var current) && ReferenceEquals(current, gate))
+                {
+                    gate.Waiting--;
+                    if (gate.Waiting == 0) gates.Remove(checkpoint);
+                }
+            }
+        }
     }
 
-    private static TaskCompletionSource<bool> NewRelease() =>
-        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private sealed class CheckpointGate
+    {
+        internal int Waiting { get; set; }
+        internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
 }

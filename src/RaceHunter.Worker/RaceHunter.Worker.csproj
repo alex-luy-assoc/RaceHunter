@@ -2,6 +2,7 @@
   <ItemGroup>
     <ProjectReference Include="..\RaceHunter.Application\RaceHunter.Application.csproj" />
     <ProjectReference Include="..\RaceHunter.Contracts\RaceHunter.Contracts.csproj" />
+    <ProjectReference Include="..\RaceHunter.Concurrency\RaceHunter.Concurrency.csproj" />
     <ProjectReference Include="..\RaceHunter.Infrastructure\RaceHunter.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

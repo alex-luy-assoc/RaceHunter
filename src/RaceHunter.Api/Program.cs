@@ -1,3 +1,4 @@
+using RaceHunter.Api.Endpoints;
 using RaceHunter.Application.Projects;
 using RaceHunter.Contracts;
 using RaceHunter.Infrastructure.Persistence;
@@ -25,6 +26,7 @@ app.MapGet("/api/projects/{id:guid}", async (Guid id, ProjectService service, Ca
         ? Results.NotFound()
         : Results.Ok(new ProjectResponse(project.Id, project.Name, project.CreatedAtUtc));
 });
+app.MapRunEndpoints();
 app.MapFallbackToFile("index.html");
 app.Run();
 

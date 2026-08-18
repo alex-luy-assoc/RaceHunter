@@ -35,7 +35,7 @@ app.MapPost("/api/orders", async (OrderRequest request, OrderService service, Ca
     var result = await service.PlaceAsync(request, cancellationToken);
     return result.Status switch
     {
-        "created" => Results.Created("/api/orders", new { result.CorrelationId }),
+        "created" => Results.Created("/api/orders", new { result.CorrelationId, result.SuccessfulOrders }),
         "out-of-stock" => Results.Conflict(new { error = "Insufficient inventory." }),
         _ => Results.BadRequest(new { error = "Actor ID and a positive quantity are required." })
     };

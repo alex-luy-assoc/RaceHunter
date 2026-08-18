@@ -2,9 +2,11 @@
 
 RaceHunter is an autonomous concurrency-correctness tester for HTTP/JSON APIs. It turns a business rule into a bounded campaign, records causal evidence, and keeps deterministic invariant evaluation outside the model.
 
-## Phase 1 walking skeleton
+## Implemented foundation and deterministic hunt
 
 The foundation contains .NET 10 Clean Architecture projects, a React shell served by the API, EF Core/Npgsql migrations, a controlled vulnerable/fixed inventory target, three non-root Docker images, Docker Compose portability, and Terraform for the approved Cloud Run/Pub/Sub/Cloud SQL/Secret Manager architecture.
+
+The Phase 2 deterministic engine adds actor/request/duration/concurrency budgets; simultaneous-start, seeded-jitter, and controlled-checkpoint schedules; numeric-boundary, uniqueness/cardinality, and cross-observation evaluators; ordered correlated trace evidence; durable cursor-based progress; and cancellation polling below the two-second requirement. Gemini and Pub/Sub orchestration remain Phase 3 work—the private worker currently exposes an explicit manual inventory-hunt endpoint for deterministic local verification.
 
 ### Prerequisites
 
@@ -34,6 +36,21 @@ docker compose up --build
 - API and React: `http://localhost:8080`
 - Worker health: `http://localhost:8081/healthz`
 - Reference target: `http://localhost:8082`
+
+Run a deterministic two-actor vulnerable-target hunt after resetting the sandbox:
+
+```powershell
+$headers = @{ 'X-Demo-Control-Key' = 'local-demo-only' }
+Invoke-RestMethod -Method Post -Uri 'http://localhost:8082/demo/reset' -Headers $headers -ContentType 'application/json' -Body '{"quantity":1,"mode":"vulnerable"}'
+$runId = [guid]::NewGuid()
+$body = @{ runId = $runId; actorCount = 2; maxConcurrency = 2; maxRequests = 2; maxDurationSeconds = 30; schedule = 'CheckpointInterleaving'; seed = 4242; maximumSuccessfulOrders = 1 } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri 'http://localhost:8081/internal/manual-hunts' -ContentType 'application/json' -Body $body
+Invoke-RestMethod -Uri "http://localhost:8080/api/runs/$runId"
+Invoke-RestMethod -Uri "http://localhost:8080/api/runs/$runId/events?after=0"
+Invoke-RestMethod -Uri "http://localhost:8080/api/runs/$runId/traces?after=0"
+```
+
+The final response reports deterministic `Fail` evidence when successful orders exceed the configured maximum. `POST /api/runs/{runId}/cancel` persists an idempotent cancellation request; an active manual execution checks durable cancellation every 200 ms and stops new target work.
 
 The demo reset endpoint is disabled when `DemoControl:Key` is absent. Compose supplies the development-only `X-Demo-Control-Key: local-demo-only`; staging receives a generated key through a least-privilege Secret Manager reference and stores no key value in the repository.
 

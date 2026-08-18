@@ -54,14 +54,17 @@ internal sealed class OrderService(InventoryDbContext database, ControlledCheckp
             CreatedAtUtc = DateTime.UtcNow
         });
         await database.SaveChangesAsync(cancellationToken);
-        return OrderOutcome.Created(correlationId);
+        var successfulOrders = await database.Inventory.AsNoTracking()
+            .Select(state => state.SuccessfulOrders)
+            .SingleAsync(cancellationToken);
+        return OrderOutcome.Created(correlationId, successfulOrders);
     }
 }
 
 internal sealed record OrderRequest(string ActorId, int Quantity, string Checkpoint);
-internal sealed record OrderOutcome(string Status, Guid? CorrelationId)
+internal sealed record OrderOutcome(string Status, Guid? CorrelationId, int SuccessfulOrders)
 {
-    internal static OrderOutcome Created(Guid id) => new("created", id);
-    internal static OrderOutcome OutOfStock() => new("out-of-stock", null);
-    internal static OrderOutcome Invalid() => new("invalid", null);
+    internal static OrderOutcome Created(Guid id, int successfulOrders) => new("created", id, successfulOrders);
+    internal static OrderOutcome OutOfStock() => new("out-of-stock", null, 0);
+    internal static OrderOutcome Invalid() => new("invalid", null, 0);
 }

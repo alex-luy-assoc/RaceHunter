@@ -111,6 +111,40 @@ public sealed class InventoryRaceTests(ReferenceTargetFixture fixture) : IClassF
         Assert.Equal(0, state.Available);
     }
 
+    [Fact]
+    public async Task Controlled_checkpoint_degrades_safely_when_only_one_actor_can_run()
+    {
+        await ResetAsync(1, "vulnerable");
+
+        var first = await Client.PostAsJsonAsync("/api/orders", new { actorId = "actor-0", quantity = 1, checkpoint = "oversell" });
+        var second = await Client.PostAsJsonAsync("/api/orders", new { actorId = "actor-1", quantity = 1, checkpoint = "oversell" });
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+    }
+
+    [Fact]
+    public async Task Controlled_checkpoints_are_isolated_and_remove_cancelled_waiters()
+    {
+        await ResetAsync(1, "vulnerable");
+        using (var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50)))
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Client.PostAsJsonAsync(
+                "/api/orders",
+                new { actorId = "abandoned", quantity = 1, checkpoint = "oversell:run-a" },
+                cancellation.Token));
+        }
+        await ResetAsync(1, "vulnerable");
+
+        var first = Client.PostAsJsonAsync("/api/orders", new { actorId = "actor-0", quantity = 1, checkpoint = "oversell:run-b" });
+        await Task.Delay(50);
+        Assert.False(first.IsCompleted);
+        var second = Client.PostAsJsonAsync("/api/orders", new { actorId = "actor-1", quantity = 1, checkpoint = "oversell:run-b" });
+        var responses = await Task.WhenAll(first, second);
+
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.Created, response.StatusCode));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]

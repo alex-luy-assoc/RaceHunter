@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using RaceHunter.Application.Projects;
+using RaceHunter.Domain.Budgets;
 using RaceHunter.Domain.Projects;
+using RaceHunter.Domain.Runs;
+using RaceHunter.Domain.Tracing;
 using RaceHunter.Infrastructure.Persistence;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -29,6 +32,7 @@ public sealed class PersistenceFoundationTests(PersistenceDatabaseFixture fixtur
         await context.Database.MigrateAsync();
 
         Assert.Contains("202608180001_InitialCreate", await context.Database.GetAppliedMigrationsAsync());
+        Assert.Contains("202608180002_AddRunEvidence", await context.Database.GetAppliedMigrationsAsync());
     }
 
     [Fact]
@@ -78,6 +82,49 @@ public sealed class PersistenceFoundationTests(PersistenceDatabaseFixture fixtur
 
         var loaded = await repository.GetAsync(project.Id, CancellationToken.None);
         Assert.Equal(DateTimeKind.Utc, loaded!.CreatedAtUtc.Kind);
+    }
+
+    [Fact]
+    public async Task Run_store_round_trips_durable_lifecycle_and_cursor_paged_events()
+    {
+        await using var context = CreateContext();
+        await context.Database.MigrateAsync();
+        var store = new RunStore(context);
+        var run = ExperimentRun.Queue(Guid.NewGuid(), ExperimentBudget.PublicSandbox, DateTime.UtcNow);
+        await store.AddAsync(run, CancellationToken.None);
+        run.Start(DateTime.UtcNow);
+        run.AppendEvent("attempt-started", "Attempt started", DateTime.UtcNow);
+        run.AppendEvent("target-call-completed", "Actor completed", DateTime.UtcNow);
+        await store.SaveAsync(run, CancellationToken.None);
+        context.ChangeTracker.Clear();
+
+        var loaded = await store.GetAsync(run.Id, CancellationToken.None);
+        var afterFirst = await store.GetEventsAsync(run.Id, 1, CancellationToken.None);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(RunStatus.Running, loaded.Status);
+        Assert.Equal(2, loaded.Events.Count);
+        Assert.Equal("target-call-completed", Assert.Single(afterFirst).Kind);
+    }
+
+    [Fact]
+    public async Task Trace_store_returns_evidence_in_sequence_order()
+    {
+        await using var context = CreateContext();
+        await context.Database.MigrateAsync();
+        var store = new RunStore(context);
+        var runId = Guid.NewGuid();
+        var attemptId = Guid.NewGuid();
+        var run = ExperimentRun.Queue(runId, ExperimentBudget.PublicSandbox, DateTime.UtcNow);
+        await store.AddAsync(run, CancellationToken.None);
+        await store.AddAsync(RunAttempt.Start(attemptId, runId, "SimultaneousStart", 42, DateTime.UtcNow), CancellationToken.None);
+        await store.AppendAsync(new TraceEvent(2, runId, attemptId, 2, "order", "response", "request-2", DateTime.UtcNow), CancellationToken.None);
+        await store.AppendAsync(new TraceEvent(1, runId, attemptId, 1, "order", "response", "request-1", DateTime.UtcNow), CancellationToken.None);
+        context.ChangeTracker.Clear();
+
+        var traces = await store.GetAsync(runId, 0, CancellationToken.None);
+
+        Assert.Equal([1L, 2L], traces.Select(item => item.Sequence));
     }
 
     private RaceHunterDbContext CreateContext() => new(
