@@ -17,6 +17,7 @@ public sealed class ReferenceTargetFixture : IAsyncLifetime
         .Build();
     private WebApplicationFactory<Program>? factory;
     internal HttpClient Client { get; private set; } = null!;
+    internal string ConnectionString => database.GetConnectionString();
 
     public async Task InitializeAsync()
     {
@@ -54,7 +55,28 @@ public sealed class InventoryRaceTests(ReferenceTargetFixture fixture) : IClassF
     }
 
     [Fact]
-    public async Task Reset_seeds_inventory_and_mode()
+    public async Task Absent_demo_control_configuration_disables_privileged_endpoint()
+    {
+        await using var disabledFactory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder
+            .UseEnvironment("Testing")
+            .ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:ReferenceTarget"] = fixture.ConnectionString
+            })));
+        using var disabledClient = disabledFactory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/demo/reset")
+        {
+            Content = JsonContent.Create(new { quantity = 1, mode = "fixed" })
+        };
+        request.Headers.Add("X-Demo-Control-Key", "local-demo-only");
+
+        var response = await disabledClient.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Configured_demo_control_key_resets_inventory_and_mode()
     {
         await ResetAsync(3, "vulnerable");
         var state = await Client.GetFromJsonAsync<InventoryState>("/api/inventory");

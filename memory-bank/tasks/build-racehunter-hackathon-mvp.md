@@ -414,7 +414,7 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 **Build Status**: RUNNING
 **Current Phase**: 2 of 5
 **Auto-Build Mode**: YES
-**Last Completed**: Phase 1 — walking skeleton, Docker portability, reference target, PostgreSQL foundation, and deployable Google Cloud definition (2026-08-18)
+**Last Completed**: Phase 1 compliance remediation — demo control is disabled when absent and Secret Manager-backed in staging (2026-08-18)
 **PLAN BACKEND**: anthropic — configured
 **BRAINSTORM CRITIQUE**: skipped — codex unavailable (`unresolved:no-companion`, glob=∅)
 
@@ -448,3 +448,4 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - Phase 1 GREEN gate: COMPLETE — 17 tests passed (5 architecture, 4 PostgreSQL migration/repository, 8 vulnerable/fixed reference target) using .NET 10 and Testcontainers PostgreSQL (2026-08-18)
 - Phase 1 portability gate: COMPLETE — warning-free Release build, TypeScript lint and Vite production build, `docker compose config`, three Docker image builds, and local container smoke for API/worker/target health, API persistence, and target reset (2026-08-18)
 - Phase 1 review: COMPLETE — Docker base images pinned by digest; test data and Compose volumes removed after smoke; no Google Cloud calls, deployment, remote, push, or PR performed (2026-08-18)
+- Phase 1 compliance remediation: COMPLETE — removed the repository-known reference-target key fallback, proved absent configuration disables demo control, retained the explicit local Compose key, and changed staging to a generated Secret Manager value exposed only to the target and worker service accounts (2026-08-18)

@@ -35,7 +35,7 @@ docker compose up --build
 - Worker health: `http://localhost:8081/healthz`
 - Reference target: `http://localhost:8082`
 
-The demo reset endpoint is local-only and requires `X-Demo-Control-Key: local-demo-only`.
+The demo reset endpoint is disabled when `DemoControl:Key` is absent. Compose supplies the development-only `X-Demo-Control-Key: local-demo-only`; staging receives a generated key through a least-privilege Secret Manager reference and stores no key value in the repository.
 
 ### Google Cloud
 

@@ -32,6 +32,11 @@ resource "random_password" "database" {
   special = false
 }
 
+resource "random_password" "demo_control" {
+  length  = 48
+  special = false
+}
+
 resource "google_sql_database_instance" "main" {
   name             = "racehunter-staging"
   region           = var.region
@@ -94,6 +99,17 @@ resource "google_secret_manager_secret_version" "target_database" {
   secret_data = "Host=/cloudsql/${google_sql_database_instance.main.connection_name};Database=${google_sql_database.reference_target.name};Username=${google_sql_user.racehunter.name};Password=${random_password.database.result};SSL Mode=Disable"
 }
 
+resource "google_secret_manager_secret" "demo_control" {
+  secret_id = "racehunter-demo-control-key"
+  replication { auto {} }
+  depends_on = [google_project_service.required]
+}
+
+resource "google_secret_manager_secret_version" "demo_control" {
+  secret      = google_secret_manager_secret.demo_control.id
+  secret_data = random_password.demo_control.result
+}
+
 resource "google_service_account" "api" {
   account_id   = "racehunter-api"
   display_name = "RaceHunter public API"
@@ -147,6 +163,18 @@ resource "google_secret_manager_secret_iam_member" "target_database" {
   secret_id = google_secret_manager_secret.target_database.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.target.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "target_demo_control" {
+  secret_id = google_secret_manager_secret.demo_control.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.target.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "worker_demo_control" {
+  secret_id = google_secret_manager_secret.demo_control.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.worker.email}"
 }
 
 resource "google_cloud_run_v2_service" "api" {
@@ -209,12 +237,25 @@ resource "google_cloud_run_v2_service" "worker" {
           }
         }
       }
+      env {
+        name = "ReferenceTarget__DemoControlKey"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.demo_control.secret_id
+            version = "latest"
+          }
+        }
+      }
       volume_mounts { name = "cloudsql" mount_path = "/cloudsql" }
       startup_probe { http_get { path = "/healthz" } }
     }
   }
 
-  depends_on = [google_project_service.required, google_secret_manager_secret_iam_member.worker_database]
+  depends_on = [
+    google_project_service.required,
+    google_secret_manager_secret_iam_member.worker_database,
+    google_secret_manager_secret_iam_member.worker_demo_control
+  ]
 }
 
 resource "google_cloud_run_v2_service" "reference_target" {
@@ -243,13 +284,25 @@ resource "google_cloud_run_v2_service" "reference_target" {
           }
         }
       }
-      env { name = "DemoControl__Key" value = "disabled-in-staging-until-configured" }
+      env {
+        name = "DemoControl__Key"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.demo_control.secret_id
+            version = "latest"
+          }
+        }
+      }
       volume_mounts { name = "cloudsql" mount_path = "/cloudsql" }
       startup_probe { http_get { path = "/healthz" } }
     }
   }
 
-  depends_on = [google_project_service.required, google_secret_manager_secret_iam_member.target_database]
+  depends_on = [
+    google_project_service.required,
+    google_secret_manager_secret_iam_member.target_database,
+    google_secret_manager_secret_iam_member.target_demo_control
+  ]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "public_api" {
