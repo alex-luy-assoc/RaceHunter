@@ -20,6 +20,19 @@ internal sealed class RaceHunterDbContextModelSnapshot : ModelSnapshot
             entity.HasIndex("Name").IsUnique();
             entity.ToTable("projects");
         });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.SecurityAuditEventRecord", entity =>
+        {
+            entity.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
+            entity.Property<string>("Category").IsRequired().HasMaxLength(80).HasColumnType("character varying(80)").HasColumnName("category");
+            entity.Property<DateTime>("OccurredAtUtc").HasColumnType("timestamp with time zone").HasColumnName("occurred_at_utc");
+            entity.Property<string>("Outcome").IsRequired().HasMaxLength(32).HasColumnType("character varying(32)").HasColumnName("outcome");
+            entity.Property<string>("SanitizedDetail").IsRequired().HasMaxLength(500).HasColumnType("character varying(500)").HasColumnName("sanitized_detail");
+            entity.Property<Guid?>("ScopeId").HasColumnType("uuid").HasColumnName("scope_id");
+            entity.Property<string>("Stage").IsRequired().HasMaxLength(32).HasColumnType("character varying(32)").HasColumnName("stage");
+            entity.HasKey("Id");
+            entity.HasIndex("OccurredAtUtc");
+            entity.ToTable("security_audit_events");
+        });
         modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.TargetSystemRecord", entity =>
         {
             entity.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
@@ -28,6 +41,7 @@ internal sealed class RaceHunterDbContextModelSnapshot : ModelSnapshot
             entity.Property<string>("CredentialReference").IsRequired().HasMaxLength(500).HasColumnType("character varying(500)").HasColumnName("credential_reference");
             entity.Property<string>("Host").IsRequired().HasMaxLength(253).HasColumnType("character varying(253)").HasColumnName("host");
             entity.Property<string>("OperationPathsJson").IsRequired().HasColumnType("jsonb").HasColumnName("operation_paths_json");
+            entity.Property<string>("OwnerKeyId").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)").HasColumnName("owner_key_id");
             entity.Property<string>("SensitiveJsonPathsJson").IsRequired().HasColumnType("jsonb").HasColumnName("sensitive_json_paths_json");
             entity.HasKey("Id");
             entity.HasIndex("BaseUrl").IsUnique();

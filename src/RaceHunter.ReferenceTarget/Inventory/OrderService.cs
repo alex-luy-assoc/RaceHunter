@@ -23,7 +23,7 @@ internal sealed class OrderService(InventoryDbContext database, ControlledCheckp
         var state = await database.Inventory.AsNoTracking().SingleAsync(cancellationToken);
         return string.Equals(state.Mode, "fixed", StringComparison.Ordinal)
             ? await PlaceFixedAsync(request, cancellationToken)
-            : await PlaceVulnerableAsync(await VulnerableSnapshotAsync(state, request.ReplayScope, request.Checkpoint, cancellationToken), request, cancellationToken);
+            : await PlaceVulnerableAsync(state, request, cancellationToken);
     }
 
     private async Task<OrderOutcome> PlaceVulnerableAsync(InventoryState snapshot, OrderRequest request, CancellationToken cancellationToken)
@@ -87,20 +87,6 @@ internal sealed class OrderService(InventoryDbContext database, ControlledCheckp
         return normalized;
     }
 
-    private async Task<InventoryState> VulnerableSnapshotAsync(InventoryState current, string? replayScope, string checkpointKey, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(replayScope) || string.IsNullOrWhiteSpace(checkpointKey)) return current;
-        var reset = await database.ResetOperations.AsNoTracking()
-            .SingleOrDefaultAsync(item => item.ReplayScope == replayScope, cancellationToken);
-        if (reset is null) return current;
-        return new InventoryState
-        {
-            InitialQuantity = reset.Quantity,
-            Available = reset.Quantity,
-            SuccessfulOrders = 0,
-            Mode = reset.Mode
-        };
-    }
 }
 
 internal sealed record OrderRequest(string ActorId, int Quantity, string Checkpoint, string? IdempotencyKey = null, string? ReplayScope = null);

@@ -166,20 +166,24 @@ public sealed class InventoryRaceTests(ReferenceTargetFixture fixture) : IClassF
     }
 
     [Fact]
-    public async Task Controlled_manual_endpoint_returns_deterministic_actor_ordinal_observation()
+    public async Task Controlled_manual_endpoint_observes_shared_transactional_state_only_after_concurrent_mutations()
     {
         await ResetAsync(1, "vulnerable");
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/manual/orders")
+        async Task<ManualOrderResult?> SendAsync(int actor)
         {
-            Content = JsonContent.Create(new { actorId = "actor-2", quantity = 1, checkpoint = "" })
-        };
-        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "manual-test-token");
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/manual/orders")
+            {
+                Content = JsonContent.Create(new { actorId = $"actor-{actor}", quantity = 1, checkpoint = "racehunter:shared-state", replayScope = "shared-state" })
+            };
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "manual-test-token");
+            using var response = await Client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return await response.Content.ReadFromJsonAsync<ManualOrderResult>();
+        }
 
-        using var response = await Client.SendAsync(request);
-        var result = await response.Content.ReadFromJsonAsync<ManualOrderResult>();
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(2, result!.ActorOrdinal);
+        var results = await Task.WhenAll(SendAsync(1), SendAsync(2));
+        Assert.All(results, result => Assert.Equal(2, result!.ReservationCount));
+        Assert.All(results, result => Assert.Equal(1, result!.ReservationCapacity));
     }
 
     [Fact]
@@ -228,12 +232,12 @@ public sealed class InventoryRaceTests(ReferenceTargetFixture fixture) : IClassF
         var cachedActor = Client.PostAsJsonAsync("/api/orders", new { actorId = "actor-1", quantity = 1, checkpoint = "oversell:recovery", idempotencyKey = "recovery-actor-1", replayScope = scope });
         await Task.Delay(50);
         Assert.False(cachedActor.IsCompleted);
-        var newActor = Client.PostAsJsonAsync("/api/orders", new { actorId = "actor-2", quantity = 1, checkpoint = "oversell:recovery", idempotencyKey = "recovery-actor-2-new", replayScope = scope });
-        var recovered = await Task.WhenAll(cachedActor, newActor).WaitAsync(TimeSpan.FromSeconds(5));
+        var cachedSecondActor = Client.PostAsJsonAsync("/api/orders", new { actorId = "actor-2", quantity = 1, checkpoint = "oversell:recovery", idempotencyKey = "recovery-actor-2", replayScope = scope });
+        var recovered = await Task.WhenAll(cachedActor, cachedSecondActor).WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.All(recovered, response => Assert.Equal(HttpStatusCode.Created, response.StatusCode));
         var state = await Client.GetFromJsonAsync<InventoryState>("/api/inventory");
-        Assert.Equal(3, state!.SuccessfulOrders);
+        Assert.Equal(2, state!.SuccessfulOrders);
     }
 
     [Fact]
@@ -297,5 +301,5 @@ public sealed class InventoryRaceTests(ReferenceTargetFixture fixture) : IClassF
     private sealed record InventoryState(int Available, int SuccessfulOrders, string Mode);
     private sealed record OrderResult(Guid CorrelationId, bool Replayed);
     private sealed record OrderStatus(int Missing);
-    private sealed record ManualOrderResult(int ActorOrdinal);
+    private sealed record ManualOrderResult(int ReservationCount, int ReservationCapacity);
 }

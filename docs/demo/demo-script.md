@@ -16,7 +16,7 @@ Use a pre-provisioned staging environment and a fresh browser session. Do not pa
 ## Before recording
 
 1. Run the local fresh-volume golden path with `./scripts/run-real-playwright.ps1`.
-2. With explicit staging approval, run `deploy/scripts/smoke.ps1 -ApiBaseUrl <url> -ApproveStagingSmoke`; it fails if the journey exceeds four minutes.
+2. With explicit staging approval, run `deploy/scripts/smoke.ps1 -ApiBaseUrl <api-url> -WorkerUrl <worker-url> -ReferenceTargetUrl <target-url> -ApproveStagingSmoke`; it verifies the known `/healthz` routes return authoritative IAM `401/403` denials and fails if the journey exceeds four minutes.
 3. Confirm the Finding page has the exact headline, three failed reproductions, two actors, vulnerable Fail, fixed Pass, and Cloud Proof identifiers.
 4. Confirm logs and screenshots contain no bearer tokens, cookies, database passwords, demo-control keys, or target response secrets.
 5. Keep the architecture diagram and fallback local recording available; do not change the replay artifact or claim deterministic control of external server scheduling.

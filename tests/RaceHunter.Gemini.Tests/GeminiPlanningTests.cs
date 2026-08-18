@@ -14,7 +14,12 @@ public sealed class GeminiPlanningTests
         ["numeric-boundary"],
         ["simultaneous-start", "seeded-jitter", "checkpoint-interleaving"],
         ExperimentBudget.PublicSandbox,
-        ["successful-orders", "inventory-capacity", "order-correlation"]);
+        ["successful-orders", "inventory-capacity", "order-correlation"],
+        [
+            new AllowedObservationCapability("place-order", "successful-orders", "number"),
+            new AllowedObservationCapability("place-order", "inventory-capacity", "number"),
+            new AllowedObservationCapability("place-order", "order-correlation", "text")
+        ]);
 
     [Fact]
     public async Task Planning_input_names_objective_operations_and_server_budgets()
@@ -126,6 +131,42 @@ public sealed class GeminiPlanningTests
         Assert.Equal("successful-orders", plan.Invariant.LeftMetric);
         Assert.Equal("inventory-capacity", plan.Invariant.RightMetric);
         Assert.Equal("less-than-or-equal", plan.Invariant.Relation);
+    }
+
+    [Theory]
+    [InlineData("numeric-boundary", "order-correlation", "\"maximum\":1")]
+    [InlineData("cardinality", "successful-orders", "")]
+    public async Task Planner_rejects_invariant_family_when_the_selected_metric_has_the_wrong_type(
+        string family, string metric, string extra)
+    {
+        var suffix = extra.Length == 0 ? string.Empty : $",{extra}";
+        var json = $"{{\"schemaVersion\":\"plan-v1\",\"actors\":[{{\"name\":\"buyer\",\"operationId\":\"place-order\"}}],\"invariant\":{{\"type\":\"{family}\",\"metric\":\"{metric}\"{suffix}}},\"strategy\":{{\"kind\":\"simultaneous-start\",\"actorCount\":2,\"seed\":42}}}}";
+        var model = new ScriptedModelClient(json, json);
+
+        var error = await Assert.ThrowsAsync<ModelOutputException>(() => new ScenarioPlanner(model).PlanAsync(Context with
+        {
+            AllowedInvariantTypes = ["numeric-boundary", "cardinality", "cross-observation"]
+        }, CancellationToken.None));
+
+        Assert.Equal(ModelOutcome.InvalidOutput, error.Outcome);
+    }
+
+    [Fact]
+    public async Task Planner_rejects_cross_observation_metrics_split_across_selected_operations()
+    {
+        const string json = """{"schemaVersion":"plan-v1","actors":[{"name":"reserve","operationId":"place-order"},{"name":"inspect","operationId":"inspect"}],"invariant":{"type":"cross-observation","metric":"successful-orders","leftMetric":"successful-orders","rightMetric":"remote-capacity","relation":"less-than-or-equal"},"strategy":{"kind":"simultaneous-start","actorCount":2,"seed":42}}""";
+        var model = new ScriptedModelClient(json, json);
+        var split = Context with
+        {
+            AllowedOperations = [.. Context.AllowedOperations, new AllowedTargetOperation("inspect", "GET", "/inventory")],
+            AllowedInvariantTypes = ["numeric-boundary", "cardinality", "cross-observation"],
+            AllowedObservationMetrics = [.. Context.AllowedObservationMetrics!, "remote-capacity"],
+            ObservationCapabilities = [.. Context.ObservationCapabilities!, new AllowedObservationCapability("inspect", "remote-capacity", "number")]
+        };
+
+        var error = await Assert.ThrowsAsync<ModelOutputException>(() => new ScenarioPlanner(model).PlanAsync(split, CancellationToken.None));
+
+        Assert.Equal(ModelOutcome.InvalidOutput, error.Outcome);
     }
 
     private static StrategySelectionContext StrategyContext() => new(

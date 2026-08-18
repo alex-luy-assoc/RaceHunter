@@ -12,6 +12,7 @@ using RaceHunter.Domain.Invariants;
 using RaceHunter.Domain.Replays;
 using RaceHunter.Domain.Runs;
 using RaceHunter.Infrastructure.Observability;
+using RaceHunter.Infrastructure.Security;
 
 namespace RaceHunter.Worker.Execution;
 
@@ -27,6 +28,7 @@ internal sealed class CampaignRunner(
     IFindingStore findings,
     IFindingProbeCheckpointStore probeCheckpoints,
     ITraceStore traces,
+    ISecurityAuditStore securityAudits,
     DurableCancellationMonitor cancellationMonitor,
     IConfiguration configuration) : ICampaignWorkHandler
 {
@@ -74,24 +76,24 @@ internal sealed class CampaignRunner(
             : configuration["ReferenceTarget:DemoControlKey"]
                 ?? throw new InvalidOperationException("ReferenceTarget:DemoControlKey is required for campaign setup.");
         var recovered = RecoverSettings(recoveredCheckpoint, plan);
-        var manualSetupCost = hunt.ManualTargetId.HasValue &&
-            (await manualTarget.GetSnapshotAsync(hunt.ManualTargetId.Value, cancellationToken)).Operations.Any(operation => operation.IsSetup)
-            ? 1
-            : 0;
-        var context = new AdaptiveCampaignContext(
-            run.Id,
-            recovered.Settings,
-            ["simultaneous-start", "seeded-jitter", "checkpoint-interleaving"],
-            run.Budget,
-            Math.Max(1, Math.Min(run.Budget.MaxModelCalls, 5)),
-            recovered.ResumeAfterIteration,
-            recovered.RequestsConsumed,
-            recovered.HasCheckpoint ? recovered.ModelCallsConsumed : plan.ModelCallsConsumed,
-            recovered.RecoveredAttempt,
-            manualSetupCost);
-        var invariant = PlannedInvariantCompiler.Compile(plan.Invariant);
         try
         {
+            var manualSetupCost = hunt.ManualTargetId.HasValue &&
+                (await manualTarget.GetSnapshotAsync(hunt.ManualTargetId.Value, cancellationToken)).Operations.Any(operation => operation.IsSetup)
+                ? 1
+                : 0;
+            var context = new AdaptiveCampaignContext(
+                run.Id,
+                recovered.Settings,
+                ["simultaneous-start", "seeded-jitter", "checkpoint-interleaving"],
+                run.Budget,
+                Math.Max(1, Math.Min(run.Budget.MaxModelCalls, 5)),
+                recovered.ResumeAfterIteration,
+                recovered.RequestsConsumed,
+                recovered.HasCheckpoint ? recovered.ModelCallsConsumed : plan.ModelCallsConsumed,
+                recovered.RecoveredAttempt,
+                manualSetupCost);
+            var invariant = PlannedInvariantCompiler.Compile(plan.Invariant);
             if (!hunt.ManualTargetId.HasValue)
                 await target.ResetAsync(
                     ReplayTargetMode.Vulnerable,
@@ -236,6 +238,20 @@ internal sealed class CampaignRunner(
         {
             throw;
         }
+        catch (TargetSafetyException exception)
+        {
+            var durable = await runs.GetAsync(runId, CancellationToken.None) ?? run;
+            var detail = $"Manual target execution stopped with safety category {exception.Code}.";
+            if (durable.IsActive)
+            {
+                durable.AppendEvent("target-safety-failed", detail, DateTime.UtcNow);
+                durable.Fail(DateTime.UtcNow);
+                await runs.SaveAsync(durable, CancellationToken.None);
+            }
+            await securityAudits.AppendAsync(new SecurityAuditEvent(Guid.NewGuid(), runId, "execution", exception.Code,
+                "failed", detail, DateTime.UtcNow), CancellationToken.None);
+            throw;
+        }
         catch (Exception exception)
         {
             var durable = await runs.GetAsync(runId, CancellationToken.None) ?? run;
@@ -261,6 +277,7 @@ internal sealed class CampaignRunner(
         ModelOutputException => "model",
         HttpRequestException => "transport",
         DurableCancellationProbeException => "persistence",
+        TargetSafetyException => "target-safety",
         InvalidOperationException => "orchestration",
         _ => "worker"
     };

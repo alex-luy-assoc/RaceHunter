@@ -8,7 +8,8 @@ public sealed record ManualTargetAuthorization(
     bool AuthorizationAcknowledged,
     string CredentialReference,
     IReadOnlyCollection<ManualTargetOperation> Operations,
-    IReadOnlyCollection<string> SensitiveJsonPaths);
+    IReadOnlyCollection<string> SensitiveJsonPaths,
+    string OwnerKeyId = "");
 
 public sealed record ManualTargetOperation(
     string Id,
@@ -16,14 +17,20 @@ public sealed record ManualTargetOperation(
     string Path,
     string RequestTemplateJson,
     IReadOnlyDictionary<string, string> ObservationPaths,
-    bool IsSetup = false);
+    bool IsSetup = false,
+    IReadOnlyDictionary<string, string>? ObservationTypes = null)
+{
+    public string ObservationType(string metric) =>
+        ObservationTypes is not null && ObservationTypes.TryGetValue(metric, out var type) ? type : "number";
+}
 
 public sealed record ValidatedManualTarget(
     Uri BaseUri,
     string Host,
     string CredentialReference,
     IReadOnlyCollection<ManualTargetOperation> Operations,
-    IReadOnlyCollection<string> SensitiveJsonPaths);
+    IReadOnlyCollection<string> SensitiveJsonPaths,
+    string OwnerKeyId = "");
 
 public sealed record ManualTargetSnapshot(
     Guid Id,
@@ -32,7 +39,8 @@ public sealed record ManualTargetSnapshot(
     string CredentialReference,
     IReadOnlyCollection<ManualTargetOperation> Operations,
     IReadOnlyCollection<string> SensitiveJsonPaths,
-    DateTime CreatedAtUtc);
+    DateTime CreatedAtUtc,
+    string OwnerKeyId = "");
 
 public interface IManualTargetSafetyPolicy
 {
@@ -51,11 +59,13 @@ public sealed class ConfigureManualTarget(IManualTargetSafetyPolicy safetyPolicy
     public async Task<ManualTargetSnapshot> ExecuteAsync(ManualTargetAuthorization request, CancellationToken cancellationToken)
     {
         var validated = await safetyPolicy.ValidateAsync(request, cancellationToken);
+        if (string.IsNullOrWhiteSpace(request.OwnerKeyId)) throw new DomainException("An authenticated manual-target owner is required.");
         if (validated.Operations.Count > 20) throw new DomainException("A manual target supports at most 20 allowlisted operations.");
         var existing = await store.GetByBaseUriAsync(validated.BaseUri, cancellationToken);
         if (existing is not null)
         {
             if (existing.CredentialReference != validated.CredentialReference ||
+                existing.OwnerKeyId != request.OwnerKeyId ||
                 System.Text.Json.JsonSerializer.Serialize(existing.Operations) != System.Text.Json.JsonSerializer.Serialize(validated.Operations) ||
                 !existing.SensitiveJsonPaths.SequenceEqual(validated.SensitiveJsonPaths))
                 throw new DomainException("That base URL already has a different immutable target snapshot.");
@@ -68,7 +78,8 @@ public sealed class ConfigureManualTarget(IManualTargetSafetyPolicy safetyPolicy
             validated.CredentialReference,
             validated.Operations,
             validated.SensitiveJsonPaths,
-            DateTime.UtcNow);
+            DateTime.UtcNow,
+            request.OwnerKeyId);
         await store.AddAsync(target, cancellationToken);
         return target;
     }

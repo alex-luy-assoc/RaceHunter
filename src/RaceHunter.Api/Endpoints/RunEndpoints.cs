@@ -1,4 +1,6 @@
+using RaceHunter.Api.Security;
 using RaceHunter.Api.Streaming;
+using RaceHunter.Application.Hunts;
 using RaceHunter.Application.Runs;
 using RaceHunter.Contracts;
 using RaceHunter.Domain.Runs;
@@ -10,8 +12,11 @@ internal static class RunEndpoints
 {
     internal static IEndpointRouteBuilder MapRunEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/api/runs/{id:guid}", async (Guid id, GetRun query, CancellationToken cancellationToken) =>
+        endpoints.MapGet("/api/runs/{id:guid}", async (Guid id, HttpContext context, GetRun query, IHuntStore hunts,
+            IManualTargetStore targets, IConfiguration configuration, CancellationToken cancellationToken) =>
         {
+            var denied = await ManualResourceAuthorization.ForRunAsync(context, id, hunts, targets, configuration, cancellationToken);
+            if (denied is not null) return denied;
             var run = await query.ExecuteAsync(id, cancellationToken);
             return run is null ? Results.NotFound() : Results.Ok(new RunResponse(
                 run.Id,
@@ -28,14 +33,20 @@ internal static class RunEndpoints
                 await query.GetFindingIdAsync(id, cancellationToken)));
         });
         endpoints.MapGet("/api/runs/{id:guid}/events", GetEventsAsync);
-        endpoints.MapGet("/api/runs/{id:guid}/traces", async (Guid id, long? after, GetRun query, CancellationToken cancellationToken) =>
+        endpoints.MapGet("/api/runs/{id:guid}/traces", async (Guid id, long? after, HttpContext context, GetRun query,
+            IHuntStore hunts, IManualTargetStore targets, IConfiguration configuration, CancellationToken cancellationToken) =>
         {
+            var denied = await ManualResourceAuthorization.ForRunAsync(context, id, hunts, targets, configuration, cancellationToken);
+            if (denied is not null) return denied;
             if (await query.ExecuteAsync(id, cancellationToken) is null) return Results.NotFound();
             return Results.Ok((await query.GetTracesAsync(id, after ?? 0, cancellationToken))
                 .Select(item => new TraceEventResponse(item.Sequence, item.AttemptId, item.ActorId, item.StepId, item.Kind, item.RequestId, item.OccurredAtUtc)));
         });
-        endpoints.MapPost("/api/runs/{id:guid}/cancel", async (Guid id, CancelRun command, CancellationToken cancellationToken) =>
+        endpoints.MapPost("/api/runs/{id:guid}/cancel", async (Guid id, HttpContext context, CancelRun command,
+            IHuntStore hunts, IManualTargetStore targets, IConfiguration configuration, CancellationToken cancellationToken) =>
         {
+            var denied = await ManualResourceAuthorization.ForRunAsync(context, id, hunts, targets, configuration, cancellationToken);
+            if (denied is not null) return denied;
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             using var activity = RaceHunterTelemetry.Activities.StartActivity("racehunter.run.cancel");
             activity?.SetTag("racehunter.run.id", id.ToString());
@@ -48,8 +59,11 @@ internal static class RunEndpoints
         return endpoints;
     }
 
-    private static async Task<IResult> GetEventsAsync(Guid id, long? after, HttpContext httpContext, GetRun query, CancellationToken cancellationToken)
+    private static async Task<IResult> GetEventsAsync(Guid id, long? after, HttpContext httpContext, GetRun query,
+        IHuntStore hunts, IManualTargetStore targets, IConfiguration configuration, CancellationToken cancellationToken)
     {
+        var denied = await ManualResourceAuthorization.ForRunAsync(httpContext, id, hunts, targets, configuration, cancellationToken);
+        if (denied is not null) return denied;
         var run = await query.ExecuteAsync(id, cancellationToken);
         if (run is null) return Results.NotFound();
         var acceptsSse = httpContext.Request.GetTypedHeaders().Accept?.Any(item => item.MediaType.Value == "text/event-stream") == true;

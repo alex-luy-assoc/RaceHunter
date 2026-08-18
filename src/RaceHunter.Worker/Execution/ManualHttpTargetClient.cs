@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -55,35 +56,83 @@ internal sealed class ManualHttpTargetClient(IManualTargetStore targets, IManual
     private async Task<TargetCallResult?> SendAsync(ValidatedManualTarget target, ManualTargetOperation operation,
         Guid runId, ScheduledActor actor, string executionKey, bool collectObservations, CancellationToken cancellationToken)
     {
-        var credential = await secrets.AccessAsync(target.CredentialReference, cancellationToken);
-        using var client = clients.Create(target);
-        using var request = new HttpRequestMessage(new HttpMethod(operation.Method), operation.Path);
-        if (operation.Method != "GET")
-            request.Content = new StringContent(Render(operation.RequestTemplateJson, runId, actor, executionKey), Encoding.UTF8, "application/json");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
-        request.Headers.TryAddWithoutValidation("X-RaceHunter-Idempotency-Key", $"{executionKey}:{actor.ActorId}:{operation.Id}");
-        request.Headers.TryAddWithoutValidation("X-RaceHunter-Replay-Scope", executionKey);
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var outcome = "failure";
         using var activity = RaceHunterTelemetry.Activities.StartActivity("racehunter.target.manual", System.Diagnostics.ActivityKind.Client);
         activity?.SetTag("racehunter.run.id", runId.ToString());
         activity?.SetTag("racehunter.actor.id", actor.ActorId);
         activity?.SetTag("racehunter.step.id", operation.Id);
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        var bytes = await ReadBoundedAsync(response.Content, cancellationToken);
-        var sanitized = SensitiveDataRedactor.RedactJson(Encoding.UTF8.GetString(bytes), target.SensitiveJsonPaths);
-        response.EnsureSuccessStatusCode();
-        if (!collectObservations) return null;
-        using var document = JsonDocument.Parse(sanitized);
-        var requestId = TryRead(document.RootElement, "$.correlationId", out var correlation)
-            ? correlation.ToString() : Guid.NewGuid().ToString("N");
-        var observations = new List<Observation>();
-        foreach (var configured in operation.ObservationPaths)
+        try
         {
-            if (!TryRead(document.RootElement, configured.Value, out var value) || !value.TryGetDecimal(out var number))
-                throw new TargetSafetyException("response_contract_invalid", $"The sanitized response did not contain numeric observation '{configured.Key}'.");
-            observations.Add(Observation.Number(configured.Key, number, $"target-response:{requestId}", requestId));
+            var credential = await secrets.AccessAsync(target.CredentialReference, cancellationToken);
+            using var client = clients.Create(target);
+            using var request = new HttpRequestMessage(new HttpMethod(operation.Method), operation.Path);
+            if (operation.Method != "GET")
+                request.Content = new StringContent(Render(operation.RequestTemplateJson, runId, actor, executionKey), Encoding.UTF8, "application/json");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
+            request.Headers.TryAddWithoutValidation("X-RaceHunter-Idempotency-Key", $"{executionKey}:{actor.ActorId}:{operation.Id}");
+            request.Headers.TryAddWithoutValidation("X-RaceHunter-Replay-Scope", executionKey);
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            var bytes = await ReadBoundedAsync(response.Content, cancellationToken);
+            var sanitized = SensitiveDataRedactor.RedactJson(Encoding.UTF8.GetString(bytes), target.SensitiveJsonPaths);
+            response.EnsureSuccessStatusCode();
+            if (!collectObservations)
+            {
+                outcome = "success";
+                return null;
+            }
+            using var document = JsonDocument.Parse(sanitized);
+            var requestId = TryRead(document.RootElement, "$.correlationId", out var correlation)
+                ? correlation.ToString() : Guid.NewGuid().ToString("N");
+            var observations = new List<Observation>();
+            foreach (var configured in operation.ObservationPaths)
+            {
+                if (!TryRead(document.RootElement, configured.Value, out var value))
+                    throw new TargetSafetyException("response_contract_invalid", $"The sanitized response did not contain observation '{configured.Key}'.");
+                if (operation.ObservationType(configured.Key) == "text")
+                {
+                    var text = value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(text))
+                        throw new TargetSafetyException("response_contract_invalid", $"The sanitized response did not contain text observation '{configured.Key}'.");
+                    observations.Add(Observation.Text(configured.Key, text, $"target-response:{requestId}", requestId));
+                }
+                else
+                {
+                    if (!value.TryGetDecimal(out var number))
+                        throw new TargetSafetyException("response_contract_invalid", $"The sanitized response did not contain numeric observation '{configured.Key}'.");
+                    observations.Add(Observation.Number(configured.Key, number, $"target-response:{requestId}", requestId));
+                }
+            }
+            activity?.SetTag("racehunter.request.id", requestId);
+            outcome = "success";
+            return TargetCallResult.Success(observations, requestId);
         }
-        activity?.SetTag("racehunter.request.id", requestId);
-        return TargetCallResult.Success(observations, requestId);
+        catch (TargetSafetyException)
+        {
+            outcome = "safety-failure";
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            outcome = "cancelled";
+            throw;
+        }
+        catch (HttpRequestException)
+        {
+            outcome = "http-failure";
+            throw;
+        }
+        finally
+        {
+            var tags = new TagList
+            {
+                { "outcome", outcome },
+                { "operation", operation.Id }
+            };
+            RaceHunterTelemetry.ManualTargetRequests.Add(1, tags);
+            RaceHunterTelemetry.ManualTargetLatency.Record(
+                System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, tags);
+        }
     }
 
     private static string Render(string template, Guid runId, ScheduledActor actor, string executionKey)

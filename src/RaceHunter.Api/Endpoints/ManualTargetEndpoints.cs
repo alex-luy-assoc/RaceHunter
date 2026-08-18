@@ -11,6 +11,14 @@ internal static class ManualTargetEndpoints
     internal static IEndpointRouteBuilder MapManualTargetEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapPost("/api/admin/targets", ConfigureAsync);
+        endpoints.MapGet("/api/admin/audit-events", async (HttpContext context, ISecurityAuditStore audits,
+            IConfiguration configuration, CancellationToken cancellationToken) =>
+        {
+            var authentication = AdminAuthentication.Evaluate(context, configuration);
+            if (authentication == AdminAuthenticationResult.Missing) return Results.Unauthorized();
+            if (authentication != AdminAuthenticationResult.Authorized) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            return Results.Ok(await audits.GetRecentAsync(100, cancellationToken));
+        });
         return endpoints;
     }
 
@@ -18,10 +26,14 @@ internal static class ManualTargetEndpoints
         HttpContext context,
         ConfigureManualTargetRequest request,
         ConfigureManualTarget command,
+        ISecurityAuditStore audits,
         IConfiguration configuration,
         CancellationToken cancellationToken)
     {
-        if (!AdminAuthentication.IsAuthorized(context, configuration)) return Results.NotFound();
+        var authentication = AdminAuthentication.Evaluate(context, configuration);
+        if (authentication == AdminAuthenticationResult.Missing) return Results.Unauthorized();
+        if (authentication != AdminAuthenticationResult.Authorized) return Results.StatusCode(StatusCodes.Status403Forbidden);
+        AdminAuthentication.EstablishSession(context);
 
         try
         {
@@ -34,8 +46,9 @@ internal static class ManualTargetEndpoints
                 request.CredentialReference,
                 request.Operations.Select(operation => new ManualTargetOperation(
                     operation.Id, operation.Method, operation.Path, operation.RequestTemplateJson,
-                    operation.ObservationPaths, operation.IsSetup)).ToArray(),
-                request.SensitiveJsonPaths), cancellationToken);
+                    operation.ObservationPaths, operation.IsSetup, operation.ObservationTypes)).ToArray(),
+                request.SensitiveJsonPaths,
+                AdminAuthentication.OwnerKeyId(context)), cancellationToken);
             return Results.Created($"/api/admin/targets/{target.Id}", new ManualTargetResponse(
                 target.Id,
                 target.BaseUri.AbsoluteUri,
@@ -43,11 +56,17 @@ internal static class ManualTargetEndpoints
                 target.CredentialReference,
                 target.Operations.Select(operation => new ManualTargetOperationRequest(
                     operation.Id, operation.Method, operation.Path, operation.RequestTemplateJson,
-                    operation.ObservationPaths, operation.IsSetup)).ToArray(),
+                    operation.ObservationPaths, operation.IsSetup, operation.ObservationTypes)).ToArray(),
                 target.SensitiveJsonPaths.ToArray(),
                 target.CreatedAtUtc));
         }
-        catch (Exception exception) when (exception is TargetSafetyException or DomainException or ArgumentException)
+        catch (TargetSafetyException exception)
+        {
+            await audits.AppendAsync(new SecurityAuditEvent(Guid.NewGuid(), null, "configuration", exception.Code,
+                "rejected", "Manual target configuration was rejected by the safety policy.", DateTime.UtcNow), CancellationToken.None);
+            return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unsafe manual target", detail: "The manual target was rejected by the safety policy.");
+        }
+        catch (Exception exception) when (exception is DomainException or ArgumentException)
         {
             return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unsafe manual target", detail: exception.Message);
         }

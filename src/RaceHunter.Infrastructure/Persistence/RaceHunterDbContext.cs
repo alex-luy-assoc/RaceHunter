@@ -25,6 +25,7 @@ internal sealed class RaceHunterDbContext(DbContextOptions<RaceHunterDbContext> 
     internal DbSet<ReplayAttemptRecord> ReplayAttempts => Set<ReplayAttemptRecord>();
     internal DbSet<ReplayExecutionClaimRecord> ReplayExecutionClaims => Set<ReplayExecutionClaimRecord>();
     internal DbSet<FindingProbeCheckpointRecord> FindingProbeCheckpoints => Set<FindingProbeCheckpointRecord>();
+    internal DbSet<SecurityAuditEventRecord> SecurityAuditEvents => Set<SecurityAuditEventRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -47,7 +48,19 @@ internal sealed class RaceHunterDbContext(DbContextOptions<RaceHunterDbContext> 
         modelBuilder.ApplyConfiguration(new ReplayAttemptConfiguration());
         modelBuilder.ApplyConfiguration(new ReplayExecutionClaimConfiguration());
         modelBuilder.ApplyConfiguration(new FindingProbeCheckpointConfiguration());
+        modelBuilder.ApplyConfiguration(new SecurityAuditEventConfiguration());
     }
+}
+
+internal sealed class SecurityAuditEventRecord
+{
+    public Guid Id { get; set; }
+    public Guid? ScopeId { get; set; }
+    public required string Stage { get; set; }
+    public required string Category { get; set; }
+    public required string Outcome { get; set; }
+    public required string SanitizedDetail { get; set; }
+    public DateTime OccurredAtUtc { get; set; }
 }
 
 internal sealed class ProjectRecord
@@ -65,6 +78,7 @@ internal sealed class TargetSystemRecord
     public required string CredentialReference { get; set; }
     public required string OperationPathsJson { get; set; }
     public required string SensitiveJsonPathsJson { get; set; }
+    public required string OwnerKeyId { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 }
 

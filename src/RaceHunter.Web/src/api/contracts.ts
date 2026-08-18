@@ -1,5 +1,5 @@
 export type HuntResponse = { id: string; objective: string; status: string; createdAtUtc: string }
-export type ManualTargetOperation = { id: string; method: string; path: string; requestTemplateJson: string; observationPaths: Record<string, string>; isSetup: boolean }
+export type ManualTargetOperation = { id: string; method: string; path: string; requestTemplateJson: string; observationPaths: Record<string, string>; observationTypes?: Record<string, 'number' | 'text'>; isSetup: boolean }
 export type ManualTargetResponse = { id: string; baseUrl: string; host: string; credentialReference: string; operations: ManualTargetOperation[]; sensitiveJsonPaths: string[]; createdAtUtc: string }
 export type PlanResponse = {
   planVersion: string

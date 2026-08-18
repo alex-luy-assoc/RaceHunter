@@ -2,6 +2,7 @@ using RaceHunter.Application.Agents;
 using RaceHunter.Application.Messaging;
 using RaceHunter.Contracts;
 using RaceHunter.Infrastructure.Observability;
+using RaceHunter.Infrastructure.Security;
 
 namespace RaceHunter.Worker.Execution;
 
@@ -152,6 +153,7 @@ internal sealed class WorkDispatcher(
         InvalidDataException => new WorkFailure(WorkFailureCategory.Poison, false, true, "unsupported work contract"),
         OperationCanceledException => new WorkFailure(WorkFailureCategory.Cancellation, false, true, "work cancelled"),
         DurableCancellationProbeException => new WorkFailure(WorkFailureCategory.Persistence, true, true, "cancellation probe failed"),
+        TargetSafetyException safety => new WorkFailure(WorkFailureCategory.SafetyAuthorization, false, true, $"target safety policy rejected execution: {safety.Code}"),
         InvalidOperationException => new WorkFailure(WorkFailureCategory.Orchestration, false, kind == "PlanRequested", "worker orchestration failed"),
         _ => new WorkFailure(WorkFailureCategory.Persistence, true, true, "worker persistence failed")
     };

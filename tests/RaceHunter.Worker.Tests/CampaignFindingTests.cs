@@ -71,7 +71,8 @@ public sealed class CampaignFindingTests
             new PlannedInvariant("numeric-boundary", "reservation-count", 7)));
         var changed = target with { SensitiveJsonPaths = ["$.different-secret"] };
 
-        Assert.Throws<InvalidDataException>(() => ReferenceReplayExecution.EnsureSnapshotMatches(changed, snapshot));
+        var failure = Assert.Throws<RaceHunter.Infrastructure.Security.TargetSafetyException>(() => ReferenceReplayExecution.EnsureSnapshotMatches(changed, snapshot));
+        Assert.Equal("snapshot_mismatch", failure.Code);
     }
 
     [Fact]
@@ -96,6 +97,21 @@ public sealed class CampaignFindingTests
         Assert.Contains("\"operationId\":\"confirm\"", response.Json, StringComparison.Ordinal);
         Assert.Contains("\"metric\":\"reservation-count\"", response.Json, StringComparison.Ordinal);
         Assert.Contains("\"maximum\":7", response.Json, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("cardinality", "invariant-family=cardinality; metric=correlation", "\"type\":\"cardinality\"")]
+    [InlineData("cross-observation", "invariant-family=cross-observation; left-metric=count; right-metric=capacity; relation=less-than-or-equal", "\"rightMetric\":\"capacity\"")]
+    public async Task Development_planner_honors_the_configured_manual_invariant_family(string family, string directive, string expected)
+    {
+        var request = new ModelRequest("fake", "plan-v1", "plan-v1",
+            $"prompt\nobjective=Check external state {directive}\noperations=reserve:POST:/reservations\ninvariantTypes=numeric-boundary,cardinality,cross-observation\nobservationMetrics=count,capacity,correlation\nstrategies=checkpoint-interleaving",
+            "{}", false);
+
+        var response = await new DevelopmentModelClient().GenerateAsync(request, CancellationToken.None);
+
+        Assert.Contains($"\"type\":\"{family}\"", response.Json, StringComparison.Ordinal);
+        Assert.Contains(expected, response.Json, StringComparison.Ordinal);
     }
 
     [Fact]

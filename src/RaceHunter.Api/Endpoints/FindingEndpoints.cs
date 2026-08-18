@@ -1,4 +1,6 @@
+using RaceHunter.Api.Security;
 using RaceHunter.Application.Findings;
+using RaceHunter.Application.Hunts;
 using RaceHunter.Application.Replays;
 using RaceHunter.Contracts;
 
@@ -8,20 +10,32 @@ internal static class FindingEndpoints
 {
     internal static IEndpointRouteBuilder MapFindingEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/api/findings/{id:guid}", async (Guid id, GetFinding query, CancellationToken cancellationToken) =>
+        endpoints.MapGet("/api/findings/{id:guid}", async (Guid id, HttpContext context, GetFinding query,
+            IHuntStore hunts, IManualTargetStore targets, IConfiguration configuration, CancellationToken cancellationToken) =>
         {
             var finding = await query.ExecuteAsync(id, cancellationToken);
-            return finding is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Finding not found") : Results.Ok(ToResponse(finding));
+            if (finding is null) return Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Finding not found");
+            var denied = await ManualResourceAuthorization.ForRunAsync(context, finding.RunId, hunts, targets, configuration, cancellationToken);
+            return denied ?? Results.Ok(ToResponse(finding));
         });
         endpoints.MapPost("/api/findings/{id:guid}/replays", async (
             Guid id,
             VerifyFixRequest request,
             VerifyFix command,
             GetFinding query,
+            HttpContext context,
+            IHuntStore hunts,
+            IManualTargetStore targets,
+            IConfiguration configuration,
             CancellationToken cancellationToken) =>
         {
             try
             {
+                _ = VerifyFix.NormalizeIdempotencyKey(request.IdempotencyKey);
+                var existingFinding = await query.ExecuteAsync(id, cancellationToken);
+                if (existingFinding is null) return Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Finding not found");
+                var denied = await ManualResourceAuthorization.ForRunAsync(context, existingFinding.RunId, hunts, targets, configuration, cancellationToken);
+                if (denied is not null) return denied;
                 var attempt = await command.ExecuteAsync(id, request.IdempotencyKey, cancellationToken);
                 var finding = await query.ExecuteAsync(id, cancellationToken)
                     ?? throw new KeyNotFoundException("The finding does not exist.");

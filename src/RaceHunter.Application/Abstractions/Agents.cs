@@ -4,6 +4,7 @@ using RaceHunter.Domain.Invariants;
 namespace RaceHunter.Application.Agents;
 
 public sealed record AllowedTargetOperation(string Id, string Method, string Path);
+public sealed record AllowedObservationCapability(string OperationId, string Metric, string Type);
 
 public sealed record PlanningContext(
     Guid ExperimentId,
@@ -12,7 +13,8 @@ public sealed record PlanningContext(
     IReadOnlyList<string> AllowedInvariantTypes,
     IReadOnlyList<string> AllowedStrategies,
     ExperimentBudget Budget,
-    IReadOnlyList<string>? AllowedObservationMetrics = null);
+    IReadOnlyList<string>? AllowedObservationMetrics = null,
+    IReadOnlyList<AllowedObservationCapability>? ObservationCapabilities = null);
 
 public sealed record PlannedActor(string Name, string OperationId);
 public sealed record PlannedInvariant(

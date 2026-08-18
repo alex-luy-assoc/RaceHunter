@@ -16,6 +16,7 @@ internal sealed class ManualTargetStore(RaceHunterDbContext context) : IManualTa
             CredentialReference = target.CredentialReference,
             OperationPathsJson = JsonSerializer.Serialize(target.Operations),
             SensitiveJsonPathsJson = JsonSerializer.Serialize(target.SensitiveJsonPaths),
+            OwnerKeyId = target.OwnerKeyId,
             CreatedAtUtc = target.CreatedAtUtc
         });
         await context.SaveChangesAsync(cancellationToken);
@@ -31,7 +32,8 @@ internal sealed class ManualTargetStore(RaceHunterDbContext context) : IManualTa
             item.CredentialReference,
             JsonSerializer.Deserialize<ManualTargetOperation[]>(item.OperationPathsJson) ?? [],
             JsonSerializer.Deserialize<string[]>(item.SensitiveJsonPathsJson) ?? [],
-            item.CreatedAtUtc);
+            item.CreatedAtUtc,
+            item.OwnerKeyId);
     }
 
     public async Task<ManualTargetSnapshot?> GetByBaseUriAsync(Uri baseUri, CancellationToken cancellationToken)
@@ -40,6 +42,6 @@ internal sealed class ManualTargetStore(RaceHunterDbContext context) : IManualTa
             target => target.BaseUrl == baseUri.AbsoluteUri, cancellationToken);
         return item is null ? null : new ManualTargetSnapshot(item.Id, new Uri(item.BaseUrl, UriKind.Absolute), item.Host,
             item.CredentialReference, JsonSerializer.Deserialize<ManualTargetOperation[]>(item.OperationPathsJson) ?? [],
-            JsonSerializer.Deserialize<string[]>(item.SensitiveJsonPathsJson) ?? [], item.CreatedAtUtc);
+            JsonSerializer.Deserialize<string[]>(item.SensitiveJsonPathsJson) ?? [], item.CreatedAtUtc, item.OwnerKeyId);
     }
 }

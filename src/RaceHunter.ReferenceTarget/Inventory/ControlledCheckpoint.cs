@@ -7,7 +7,9 @@ internal sealed class ControlledCheckpoint
 
     public async Task ReachAsync(string checkpoint, CancellationToken cancellationToken)
     {
-        if (!checkpoint.StartsWith("oversell", StringComparison.Ordinal)) return;
+        if (!checkpoint.StartsWith("oversell", StringComparison.Ordinal) &&
+            !checkpoint.StartsWith("racehunter:", StringComparison.Ordinal) &&
+            !checkpoint.StartsWith("observe:", StringComparison.Ordinal)) return;
 
         CheckpointGate gate;
         lock (sync)

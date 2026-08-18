@@ -1,5 +1,6 @@
 using System.Text.Json;
 using RaceHunter.Application.Agents;
+using RaceHunter.Application.Hunts;
 using RaceHunter.Application.Replays;
 using RaceHunter.Concurrency.Invariants;
 using RaceHunter.Concurrency.Replay;
@@ -8,6 +9,7 @@ using RaceHunter.Domain.Budgets;
 using RaceHunter.Domain.Invariants;
 using RaceHunter.Domain.Replays;
 using RaceHunter.Infrastructure.Observability;
+using RaceHunter.Infrastructure.Security;
 
 namespace RaceHunter.Worker.Execution;
 
@@ -15,9 +17,28 @@ internal sealed class ReferenceReplayExecution(
     ConcurrencyScheduler scheduler,
     ReferenceInventoryTargetClient target,
     ManualHttpTargetClient manualTarget,
+    ISecurityAuditStore securityAudits,
     IConfiguration configuration) : IReplayExecution
 {
     public async Task<ReplayAttempt> ExecuteAsync(
+        ReplayArtifact artifact,
+        ReplayTargetMode targetMode,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ExecuteCoreAsync(artifact, targetMode, idempotencyKey, cancellationToken);
+        }
+        catch (TargetSafetyException exception)
+        {
+            await securityAudits.AppendAsync(new SecurityAuditEvent(Guid.NewGuid(), artifact.FindingId, "replay", exception.Code,
+                "failed", $"Manual target replay stopped with safety category {exception.Code}.", DateTime.UtcNow), CancellationToken.None);
+            throw;
+        }
+    }
+
+    private async Task<ReplayAttempt> ExecuteCoreAsync(
         ReplayArtifact artifact,
         ReplayTargetMode targetMode,
         string idempotencyKey,
@@ -87,7 +108,7 @@ internal sealed class ReferenceReplayExecution(
             JsonSerializer.Serialize(current.Operations) != JsonSerializer.Serialize(snapshot.Operations) ||
             !current.SensitiveJsonPaths.Order(StringComparer.Ordinal).SequenceEqual(
                 snapshot.SensitiveJsonPaths.Order(StringComparer.Ordinal), StringComparer.Ordinal))
-            throw new InvalidDataException("The authorized manual target no longer matches the immutable replay snapshot.");
+            throw new TargetSafetyException("snapshot_mismatch", "The authorized manual target no longer matches the immutable replay snapshot.");
     }
 
     internal static InvariantDefinition CompileManualInvariant(string targetSnapshot) =>

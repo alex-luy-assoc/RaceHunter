@@ -75,6 +75,22 @@ public sealed class ScenarioPlanner(IStructuredModelClient modelClient) : IScena
                 (!context.AllowedObservationMetrics.Contains(payload.Invariant.LeftMetric!, StringComparer.Ordinal) ||
                  !context.AllowedObservationMetrics.Contains(payload.Invariant.RightMetric!, StringComparer.Ordinal)))
                 throw new JsonException("unknown cross-observation metric");
+            if (context.ObservationCapabilities is not null)
+            {
+                var selectedOperations = payload.Actors.Select(actor => actor.OperationId).ToHashSet(StringComparer.Ordinal);
+                bool Allows(string metric, string type) => context.ObservationCapabilities.Any(capability =>
+                    selectedOperations.Contains(capability.OperationId) && capability.Metric == metric && capability.Type == type);
+                if (payload.Invariant.Type == "numeric-boundary" && !Allows(payload.Invariant.Metric, "number"))
+                    throw new JsonException("numeric boundary requires a numeric observation from a selected operation");
+                if (payload.Invariant.Type == "cardinality" && !Allows(payload.Invariant.Metric, "text"))
+                    throw new JsonException("cardinality requires a text observation from a selected operation");
+                if (payload.Invariant.Type == "cross-observation" && !context.ObservationCapabilities
+                    .Where(capability => selectedOperations.Contains(capability.OperationId) && capability.Type == "number")
+                    .GroupBy(capability => capability.OperationId, StringComparer.Ordinal)
+                    .Any(group => group.Any(capability => capability.Metric == payload.Invariant.LeftMetric) &&
+                        group.Any(capability => capability.Metric == payload.Invariant.RightMetric)))
+                    throw new JsonException("cross-observation requires two numeric observations from the same selected operation");
+            }
 
             var validatedJson = JsonSerializer.Serialize(payload, JsonOptions);
             var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(validatedJson))).ToLowerInvariant()[..16];
@@ -109,7 +125,9 @@ public sealed class ScenarioPlanner(IStructuredModelClient modelClient) : IScena
     {
         var prompt = PromptResources.Read("plan-v1.txt");
         var operations = string.Join(',', context.AllowedOperations.Select(item => $"{item.Id}:{item.Method}:{item.Path}"));
-        return $"{prompt}\nobjective={context.Objective}\noperations={operations}\ninvariantTypes={string.Join(',', context.AllowedInvariantTypes)}\nobservationMetrics={string.Join(',', context.AllowedObservationMetrics ?? [])}\nstrategies={string.Join(',', context.AllowedStrategies)}\nmaxActors={context.Budget.MaxActors};maxConcurrency={context.Budget.MaxConcurrentActors};maxRequests={context.Budget.MaxRequests};maxModelCalls={context.Budget.MaxModelCalls};maxDurationSeconds={(int)context.Budget.MaxDuration.TotalSeconds}";
+        var capabilities = string.Join(',', (context.ObservationCapabilities ?? [])
+            .Select(item => $"{item.OperationId}:{item.Metric}:{item.Type}"));
+        return $"{prompt}\nobjective={context.Objective}\noperations={operations}\ninvariantTypes={string.Join(',', context.AllowedInvariantTypes)}\nobservationMetrics={string.Join(',', context.AllowedObservationMetrics ?? [])}\nobservationCapabilities={capabilities}\nstrategies={string.Join(',', context.AllowedStrategies)}\nmaxActors={context.Budget.MaxActors};maxConcurrency={context.Budget.MaxConcurrentActors};maxRequests={context.Budget.MaxRequests};maxModelCalls={context.Budget.MaxModelCalls};maxDurationSeconds={(int)context.Budget.MaxDuration.TotalSeconds}";
     }
 
     private static string Sanitize(string message) => message switch

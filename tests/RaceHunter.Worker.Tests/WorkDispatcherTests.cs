@@ -7,6 +7,7 @@ using RaceHunter.Application.Messaging;
 using RaceHunter.Contracts;
 using RaceHunter.Domain.Budgets;
 using RaceHunter.Gemini;
+using RaceHunter.Infrastructure.Security;
 using RaceHunter.Worker.Execution;
 using Xunit;
 
@@ -63,6 +64,20 @@ public sealed class WorkDispatcherTests
     }
 
     [Fact]
+    public async Task Target_safety_denial_preserves_the_safety_authorization_failure_taxonomy()
+    {
+        var inbox = new FakeInbox { Acquire = new WorkAcquireResult(WorkAcquireOutcome.Acquired, 1, null) };
+        var plan = new FakePlanHandler { Failure = new TargetSafetyException("dns_blocked", "unsafe detail") };
+        var dispatcher = CreateDispatcher(inbox, plan);
+
+        _ = await dispatcher.DispatchAsync(Message("PlanRequested"), "message-safety", CancellationToken.None);
+
+        Assert.Equal(WorkFailureCategory.SafetyAuthorization, inbox.LastFailure!.Category);
+        Assert.DoesNotContain("unsafe detail", inbox.LastFailure.SanitizedDiagnostic, StringComparison.Ordinal);
+        Assert.Contains("dns_blocked", inbox.LastFailure.SanitizedDiagnostic, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Transient_model_failure_does_not_terminalize_planning_subject()
     {
         var hunt = new HuntSnapshot(Guid.NewGuid(), "test", ExperimentBudget.PublicSandbox, HuntStatus.Planning, null, null, null, DateTime.UtcNow);
@@ -110,7 +125,9 @@ public sealed class WorkDispatcherTests
             "api.example.test",
             "projects/demo-project/secrets/token/versions/latest",
             [
-                new ManualTargetOperation("place-order", "POST", "/orders", "{}", new Dictionary<string, string> { ["successful-orders"] = "$.successfulOrders" }),
+                new ManualTargetOperation("place-order", "POST", "/orders", "{}",
+                    new Dictionary<string, string> { ["successful-orders"] = "$.successfulOrders", ["inventory-capacity"] = "$.inventoryCapacity", ["order-correlation"] = "$.correlationId" },
+                    ObservationTypes: new Dictionary<string, string> { ["successful-orders"] = "number", ["inventory-capacity"] = "number", ["order-correlation"] = "text" }),
                 new ManualTargetOperation("reserve", "POST", "/reservations", "{}", new Dictionary<string, string> { ["reservation-count"] = "$.reservationCount" })
             ],
             ["$.token"],
@@ -122,9 +139,9 @@ public sealed class WorkDispatcherTests
 
         Assert.Equal(["/orders", "/reservations"], planner.Context!.AllowedOperations.Select(item => item.Path));
         Assert.All(planner.Context.AllowedOperations, item => Assert.Equal("POST", item.Method));
-        Assert.Equal(["reservation-count", "successful-orders"],
+        Assert.Equal(["inventory-capacity", "order-correlation", "reservation-count", "successful-orders"],
             planner.Context.AllowedObservationMetrics!.Order(StringComparer.Ordinal));
-        Assert.Equal(["numeric-boundary"], planner.Context.AllowedInvariantTypes);
+        Assert.Equal(["numeric-boundary", "cardinality", "cross-observation"], planner.Context.AllowedInvariantTypes);
     }
 
     private static WorkDispatcher CreateDispatcher(
@@ -159,11 +176,12 @@ public sealed class WorkDispatcherTests
         public int CompleteCalls { get; private set; }
         public int FailureCalls { get; private set; }
         public int LastMaxRetries { get; private set; }
+        public WorkFailure? LastFailure { get; private set; }
         public Task<WorkAcquireResult> TryAcquireAsync(Guid workId, string messageId, string owner, DateTime nowUtc, TimeSpan leaseDuration, CancellationToken cancellationToken) => Task.FromResult(Acquire);
         public Task<bool> HeartbeatAsync(Guid workId, string owner, DateTime nowUtc, TimeSpan leaseDuration, CancellationToken cancellationToken) => Task.FromResult(HeartbeatResult);
         public Task SaveCheckpointAsync(Guid workId, string owner, WorkCheckpoint checkpoint, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task CompleteAsync(Guid workId, string owner, DateTime nowUtc, CancellationToken cancellationToken) { CompleteCalls++; return Task.CompletedTask; }
-        public Task<WorkFailureOutcome> RecordFailureAsync(Guid workId, string owner, WorkFailure failure, int maxRetries, DateTime nowUtc, CancellationToken cancellationToken) { FailureCalls++; LastMaxRetries = maxRetries; return Task.FromResult(WorkFailureOutcome.RetryScheduled); }
+        public Task<WorkFailureOutcome> RecordFailureAsync(Guid workId, string owner, WorkFailure failure, int maxRetries, DateTime nowUtc, CancellationToken cancellationToken) { FailureCalls++; LastMaxRetries = maxRetries; LastFailure = failure; return Task.FromResult(WorkFailureOutcome.RetryScheduled); }
     }
 
     private sealed class FakePlanHandler : IPlanWorkHandler

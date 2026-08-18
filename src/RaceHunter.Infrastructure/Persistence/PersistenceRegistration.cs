@@ -18,6 +18,7 @@ public static class PersistenceRegistration
         services.AddScoped(provider => provider.GetRequiredService<IDbContextFactory<RaceHunterDbContext>>().CreateDbContext());
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<IManualTargetStore, ManualTargetStore>();
+        services.AddScoped<ISecurityAuditStore, SecurityAuditStore>();
         services.AddScoped<HuntWorkflowStore>();
         services.AddScoped<IHuntStore>(provider => provider.GetRequiredService<HuntWorkflowStore>());
         services.AddScoped<IHuntWorkflowStore>(provider => provider.GetRequiredService<HuntWorkflowStore>());

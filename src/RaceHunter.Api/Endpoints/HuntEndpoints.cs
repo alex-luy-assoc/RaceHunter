@@ -23,14 +23,18 @@ internal static class HuntEndpoints
         HttpContext context,
         CreateHuntRequest request,
         CreateHunt command,
+        IManualTargetStore targets,
         IConfiguration configuration,
         CancellationToken cancellationToken)
     {
         try
         {
             var isAdmin = AdminAuthentication.IsAuthorized(context, configuration);
-            if (!isAdmin && request.TargetId.HasValue)
-                return Results.NotFound();
+            if (request.TargetId.HasValue)
+            {
+                var denied = await ManualResourceAuthorization.ForTargetAsync(context, request.TargetId.Value, targets, configuration, cancellationToken);
+                if (denied is not null) return denied;
+            }
             if (!isAdmin && ExceedsPublicSandbox(request))
                 return Results.Problem(
                     statusCode: StatusCodes.Status403Forbidden,
@@ -59,8 +63,11 @@ internal static class HuntEndpoints
         request.MaxDurationSeconds > ExperimentBudget.PublicSandbox.MaxDuration.TotalSeconds ||
         request.MaxRetries > ExperimentBudget.PublicSandbox.MaxRetries;
 
-    private static async Task<IResult> RequestPlanAsync(Guid id, GeneratePlan command, CancellationToken cancellationToken)
+    private static async Task<IResult> RequestPlanAsync(Guid id, HttpContext context, GeneratePlan command,
+        IHuntStore hunts, IManualTargetStore targets, IConfiguration configuration, CancellationToken cancellationToken)
     {
+        var denied = await ManualResourceAuthorization.ForHuntAsync(context, id, hunts, targets, configuration, cancellationToken);
+        if (denied is not null) return denied;
         try
         {
             await command.ExecuteAsync(id, cancellationToken);
@@ -72,10 +79,13 @@ internal static class HuntEndpoints
         }
     }
 
-    private static async Task<IResult> GetPlanAsync(Guid id, IHuntStore store, CancellationToken cancellationToken)
+    private static async Task<IResult> GetPlanAsync(Guid id, HttpContext context, IHuntStore store,
+        IManualTargetStore targets, IConfiguration configuration, CancellationToken cancellationToken)
     {
         var hunt = await store.GetAsync(id, cancellationToken);
         if (hunt is null) return Results.NotFound();
+        var denied = await ManualResourceAuthorization.ForHuntAsync(context, id, store, targets, configuration, cancellationToken);
+        if (denied is not null) return denied;
         if (hunt.Status == HuntStatus.PlanningFailed)
             return Results.Problem(
                 statusCode: StatusCodes.Status422UnprocessableEntity,
@@ -99,8 +109,11 @@ internal static class HuntEndpoints
             new PlanStrategyResponse(plan.Strategy.Kind, plan.Strategy.ActorCount, plan.Strategy.Seed)));
     }
 
-    private static async Task<IResult> ApproveAsync(Guid id, ApproveRunRequest request, ApproveAndRun command, CancellationToken cancellationToken)
+    private static async Task<IResult> ApproveAsync(Guid id, HttpContext context, ApproveRunRequest request, ApproveAndRun command,
+        IHuntStore hunts, IManualTargetStore targets, IConfiguration configuration, CancellationToken cancellationToken)
     {
+        var denied = await ManualResourceAuthorization.ForHuntAsync(context, id, hunts, targets, configuration, cancellationToken);
+        if (denied is not null) return denied;
         try
         {
             var approval = await command.ExecuteAsync(id, request.PlanVersion, request.IdempotencyKey, cancellationToken);
@@ -112,10 +125,13 @@ internal static class HuntEndpoints
         }
     }
 
-    private static async Task<IResult> GetEventsAsync(Guid id, long? after, HttpContext context, IHuntStore store, CancellationToken cancellationToken)
+    private static async Task<IResult> GetEventsAsync(Guid id, long? after, HttpContext context, IHuntStore store,
+        IManualTargetStore targets, IConfiguration configuration, CancellationToken cancellationToken)
     {
         var hunt = await store.GetAsync(id, cancellationToken);
         if (hunt is null) return Results.NotFound();
+        var denied = await ManualResourceAuthorization.ForHuntAsync(context, id, store, targets, configuration, cancellationToken);
+        if (denied is not null) return denied;
         var cursor = Math.Max(0, after ?? 0);
         var acceptsSse = context.Request.GetTypedHeaders().Accept?.Any(item => item.MediaType.Value == "text/event-stream") == true;
         if (!acceptsSse) return Results.Ok(await store.GetEventsAsync(id, cursor, cancellationToken));

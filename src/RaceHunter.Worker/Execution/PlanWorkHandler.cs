@@ -66,7 +66,8 @@ internal sealed class PlanWorkHandler(
                 targetContract.InvariantTypes,
                 ["simultaneous-start", "seeded-jitter", "checkpoint-interleaving"],
                 remainingBudget,
-                targetContract.ObservationMetrics), cancellationToken);
+                targetContract.ObservationMetrics,
+                targetContract.ObservationCapabilities), cancellationToken);
             modelActivity?.SetTag("racehunter.model.invocation_id", plan.ModelInvocationId);
             modelActivity?.SetTag("racehunter.model.schema", plan.SchemaVersion);
         }
@@ -104,23 +105,38 @@ internal sealed class PlanWorkHandler(
             return new TargetPlanningContract(
                 [new AllowedTargetOperation("place-order", "POST", "/api/orders")],
                 ["numeric-boundary", "cardinality", "cross-observation"],
-                ["successful-orders", "inventory-capacity", "order-correlation"]);
+                ["successful-orders", "inventory-capacity", "order-correlation"],
+                [
+                    new AllowedObservationCapability("place-order", "successful-orders", "number"),
+                    new AllowedObservationCapability("place-order", "inventory-capacity", "number"),
+                    new AllowedObservationCapability("place-order", "order-correlation", "text")
+                ]);
         var target = await manualTargets.GetAsync(hunt.ManualTargetId.Value, cancellationToken)
             ?? throw new InvalidOperationException("The hunt's authorized manual target no longer exists.");
         var executable = target.Operations.Where(operation => !operation.IsSetup).ToArray();
         var metrics = executable.SelectMany(operation => operation.ObservationPaths.Keys)
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        string[] invariantTypes = ["numeric-boundary"];
+        var capabilities = executable.SelectMany(operation => operation.ObservationPaths.Keys.Select(metric =>
+            new AllowedObservationCapability(operation.Id, metric, operation.ObservationType(metric)))).ToArray();
+        var invariantTypes = new List<string>();
+        if (executable.Any(operation => operation.ObservationPaths.Keys.Any(metric => operation.ObservationType(metric) == "number")))
+            invariantTypes.Add("numeric-boundary");
+        if (executable.Any(operation => operation.ObservationPaths.Keys.Any(metric => operation.ObservationType(metric) == "text")))
+            invariantTypes.Add("cardinality");
+        if (executable.Any(operation => operation.ObservationPaths.Keys.Count(metric => operation.ObservationType(metric) == "number") >= 2))
+            invariantTypes.Add("cross-observation");
         return new TargetPlanningContract(
             executable.Select(operation => new AllowedTargetOperation(operation.Id, operation.Method, operation.Path)).ToArray(),
             invariantTypes,
-            metrics);
+            metrics,
+            capabilities);
     }
 
     private sealed record TargetPlanningContract(
         IReadOnlyList<AllowedTargetOperation> Operations,
         IReadOnlyList<string> InvariantTypes,
-        IReadOnlyList<string> ObservationMetrics);
+        IReadOnlyList<string> ObservationMetrics,
+        IReadOnlyList<AllowedObservationCapability> ObservationCapabilities);
 
     private async Task SaveUsageAsync(
         Guid workId,

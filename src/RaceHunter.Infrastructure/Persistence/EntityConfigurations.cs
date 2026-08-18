@@ -3,6 +3,23 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace RaceHunter.Infrastructure.Persistence;
 
+internal sealed class SecurityAuditEventConfiguration : IEntityTypeConfiguration<SecurityAuditEventRecord>
+{
+    public void Configure(EntityTypeBuilder<SecurityAuditEventRecord> builder)
+    {
+        builder.ToTable("security_audit_events");
+        builder.HasKey(item => item.Id);
+        builder.Property(item => item.Id).HasColumnName("id").ValueGeneratedNever();
+        builder.Property(item => item.ScopeId).HasColumnName("scope_id");
+        builder.Property(item => item.Stage).HasColumnName("stage").HasMaxLength(32).IsRequired();
+        builder.Property(item => item.Category).HasColumnName("category").HasMaxLength(80).IsRequired();
+        builder.Property(item => item.Outcome).HasColumnName("outcome").HasMaxLength(32).IsRequired();
+        builder.Property(item => item.SanitizedDetail).HasColumnName("sanitized_detail").HasMaxLength(500).IsRequired();
+        builder.Property(item => item.OccurredAtUtc).HasColumnName("occurred_at_utc").HasColumnType("timestamp with time zone");
+        builder.HasIndex(item => item.OccurredAtUtc);
+    }
+}
+
 internal sealed class ProjectConfiguration : IEntityTypeConfiguration<ProjectRecord>
 {
     public void Configure(EntityTypeBuilder<ProjectRecord> builder)
@@ -28,6 +45,7 @@ internal sealed class TargetSystemConfiguration : IEntityTypeConfiguration<Targe
         builder.Property(item => item.CredentialReference).HasColumnName("credential_reference").HasMaxLength(500).IsRequired();
         builder.Property(item => item.OperationPathsJson).HasColumnName("operation_paths_json").HasColumnType("jsonb").IsRequired();
         builder.Property(item => item.SensitiveJsonPathsJson).HasColumnName("sensitive_json_paths_json").HasColumnType("jsonb").IsRequired();
+        builder.Property(item => item.OwnerKeyId).HasColumnName("owner_key_id").HasMaxLength(64).IsRequired();
         builder.Property(item => item.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamp with time zone");
         builder.HasIndex(item => item.BaseUrl).IsUnique();
     }

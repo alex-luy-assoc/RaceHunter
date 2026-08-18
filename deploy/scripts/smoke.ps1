@@ -26,7 +26,7 @@ function Assert-UnauthenticatedDenied([uri] $ServiceUrl, [string] $Name) {
     }
     catch {
         $status = $_.Exception.Response.StatusCode.value__
-        if ($status -notin @(401, 403, 404)) { throw }
+        if ($status -notin @(401, 403)) { throw "$Name health route did not return an authoritative IAM denial (received $status)." }
     }
 }
 function Wait-Json([string] $Path, [scriptblock] $Ready) {

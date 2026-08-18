@@ -1,6 +1,7 @@
 using RaceHunter.Api.Endpoints;
 using RaceHunter.Api.Messaging;
 using RaceHunter.Api.Replay;
+using RaceHunter.Api.Security;
 using RaceHunter.Application.Hunts;
 using RaceHunter.Application.Messaging;
 using RaceHunter.Application.Projects;
@@ -84,8 +85,11 @@ app.MapRunEndpoints();
 app.MapHuntEndpoints();
 app.MapManualTargetEndpoints();
 app.MapGet("/api/capabilities", () => Results.Ok(new { manualTargetsEnabled = app.Environment.IsDevelopment() }));
-app.MapGet("/api/cloud-proof", async (Guid runId, GetCloudExecutionEvidence query, IConfiguration configuration, CancellationToken cancellationToken) =>
+app.MapGet("/api/cloud-proof", async (Guid runId, HttpContext context, GetCloudExecutionEvidence query,
+    IHuntStore hunts, IManualTargetStore targets, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
+    var denied = await ManualResourceAuthorization.ForRunAsync(context, runId, hunts, targets, configuration, cancellationToken);
+    if (denied is not null) return denied;
     var evidence = await query.ExecuteAsync(runId, cancellationToken);
     if (evidence is null) return Results.NotFound();
     return Results.Ok(new CloudProofResponse(

@@ -72,15 +72,15 @@ app.MapPost("/manual/reset", async (HttpRequest request, ResetRequest reset, Inv
         .SetProperty(state => state.Mode, reset.Mode), cancellationToken);
     return Results.Ok(new { successfulOrders = 0, inventoryCapacity = reset.Quantity });
 });
-app.MapPost("/manual/orders", async (HttpRequest request, OrderRequest order, OrderService service, InventoryDbContext database, IConfiguration configuration, CancellationToken cancellationToken) =>
+app.MapPost("/manual/orders", async (HttpRequest request, OrderRequest order, OrderService service, InventoryDbContext database, ControlledCheckpoint checkpoint, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
     if (!HasManualBearer(request, configuration)) return Results.NotFound();
     var result = await service.PlaceAsync(order, cancellationToken);
     if (result.Status == "invalid") return Results.BadRequest();
-    var capacity = await database.Inventory.AsNoTracking().Select(state => state.InitialQuantity).SingleAsync(cancellationToken);
-    var actorSuffix = order.ActorId[(order.ActorId.LastIndexOf('-') + 1)..];
-    var actorOrdinal = int.TryParse(actorSuffix, out var parsedActor) ? parsedActor : 0;
-    return Results.Ok(new { result.CorrelationId, result.SuccessfulOrders, inventoryCapacity = capacity, actorOrdinal, result.Status });
+    if (!string.IsNullOrWhiteSpace(order.ReplayScope))
+        await checkpoint.ReachAsync($"observe:{order.ReplayScope}", cancellationToken);
+    var state = await database.Inventory.AsNoTracking().SingleAsync(cancellationToken);
+    return Results.Ok(new { result.CorrelationId, reservationCount = state.SuccessfulOrders, reservationCapacity = state.InitialQuantity, result.Status });
 });
 app.MapPost("/demo/reset", async (HttpRequest request, ResetRequest reset, InventoryDbContext database, IConfiguration configuration, CancellationToken cancellationToken) =>
 {

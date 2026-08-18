@@ -179,12 +179,20 @@ public sealed partial class TargetDestinationValidator(
             if (operation.ObservationPaths.Count > 20 || operation.ObservationPaths.Any(item =>
                     !MetricName().IsMatch(item.Key) || !JsonPath().IsMatch(item.Value)))
                 throw new TargetSafetyException("observation_invalid", "Observation metrics and JSON paths must use the bounded allowlisted syntax.");
+            var observationTypes = operation.ObservationTypes is null
+                ? operation.ObservationPaths.Keys.ToDictionary(key => key, _ => "number", StringComparer.Ordinal)
+                : new Dictionary<string, string>(operation.ObservationTypes, StringComparer.Ordinal);
+            if (observationTypes.Count != operation.ObservationPaths.Count ||
+                observationTypes.Keys.Any(key => !operation.ObservationPaths.ContainsKey(key)) ||
+                observationTypes.Values.Any(type => type is not ("number" or "text")))
+                throw new TargetSafetyException("observation_invalid", "Every observation requires an explicit number or text type.");
             validated.Add(operation with
             {
                 Id = id,
                 Method = method,
                 Path = path,
-                ObservationPaths = new Dictionary<string, string>(operation.ObservationPaths, StringComparer.Ordinal)
+                ObservationPaths = new Dictionary<string, string>(operation.ObservationPaths, StringComparer.Ordinal),
+                ObservationTypes = observationTypes
             });
         }
         if (validated.Count(item => item.IsSetup) > 1 || validated.All(item => item.IsSetup))
