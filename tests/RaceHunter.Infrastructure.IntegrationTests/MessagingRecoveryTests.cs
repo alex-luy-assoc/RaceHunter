@@ -1,4 +1,6 @@
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using RaceHunter.Application.Hunts;
 using RaceHunter.Application.Messaging;
 using RaceHunter.Contracts;
@@ -184,10 +186,99 @@ public sealed class MessagingRecoveryTests(PersistenceDatabaseFixture fixture) :
         Assert.Equal(RunStatus.Completed, (await new RunStore(context).GetAsync(terminal.Id, CancellationToken.None))!.Status);
     }
 
-    private async Task<RaceHunterDbContext> CreateContextAsync()
+    [Fact]
+    public async Task Decision_checkpoint_commit_loses_atomically_to_concurrent_takeover()
     {
-        var context = new RaceHunterDbContext(new DbContextOptionsBuilder<RaceHunterDbContext>().UseNpgsql(fixture.Database.GetConnectionString()).Options);
+        var now = DateTime.UtcNow;
+        var workId = Guid.NewGuid();
+        var run = ExperimentRun.Queue(Guid.NewGuid(), ExperimentBudget.PublicSandbox, now);
+        await using (var seed = await CreateContextAsync())
+        {
+            await new RunStore(seed).AddAsync(run, CancellationToken.None);
+            await new WorkInboxStore(seed).TryAcquireAsync(workId, "original", "worker-a", now, TimeSpan.FromSeconds(5), CancellationToken.None);
+        }
+
+        var barrier = new CheckpointCommitBarrier();
+        await using var staleContext = await CreateContextAsync(barrier);
+        await using var takeoverContext = await CreateContextAsync();
+        var persist = new AgentDecisionCheckpointStore(staleContext).PersistAsync(
+            workId,
+            "worker-a",
+            new AgentIterationRecord(Guid.NewGuid(), run.Id, 1, "pass", "Repeat", "bounded", "fake", "strategy-v1", "invocation-1", now.AddSeconds(1)),
+            new WorkCheckpoint("agent-decision-persisted", 1, "{}", now.AddSeconds(1)),
+            "Iteration 1 persisted.",
+            CancellationToken.None);
+        await barrier.WaitUntilReachedAsync();
+        var takeover = await new WorkInboxStore(takeoverContext).TryAcquireAsync(
+            workId,
+            "redelivery",
+            "worker-b",
+            now.AddSeconds(6),
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
+        Assert.Equal(WorkAcquireOutcome.Resumed, takeover.Outcome);
+        barrier.Release();
+
+        await Assert.ThrowsAsync<WorkLeaseLostException>(() => persist);
+        Assert.True(barrier.ObservedAtomicLeaseGuard);
+        await using var verification = await CreateContextAsync();
+        Assert.Equal(0, await verification.AgentIterations.CountAsync(item => item.RunId == run.Id));
+        Assert.Equal(0, await verification.RunEvents.CountAsync(item => item.RunId == run.Id));
+    }
+
+    private async Task<RaceHunterDbContext> CreateContextAsync(IInterceptor? interceptor = null)
+    {
+        var options = new DbContextOptionsBuilder<RaceHunterDbContext>().UseNpgsql(fixture.Database.GetConnectionString());
+        if (interceptor is not null) options.AddInterceptors(interceptor);
+        var context = new RaceHunterDbContext(options.Options);
         await context.Database.MigrateAsync();
         return context;
+    }
+
+    private sealed class CheckpointCommitBarrier : DbCommandInterceptor
+    {
+        private readonly TaskCompletionSource reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int armed = 1;
+
+        public bool ObservedAtomicLeaseGuard { get; private set; }
+        public Task WaitUntilReachedAsync() => reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        public void Release() => released.TrySetResult();
+
+        public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            await PauseAsync(command, cancellationToken);
+            return result;
+        }
+
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            await PauseAsync(command, cancellationToken);
+            return result;
+        }
+
+        private async Task PauseAsync(DbCommand command, CancellationToken cancellationToken)
+        {
+            if (Volatile.Read(ref armed) != 1 ||
+                !command.CommandText.Contains("UPDATE", StringComparison.OrdinalIgnoreCase) ||
+                !command.CommandText.Contains("work_inbox", StringComparison.OrdinalIgnoreCase) ||
+                !command.CommandText.Contains("checkpoint_boundary", StringComparison.OrdinalIgnoreCase)) return;
+            if (Interlocked.Exchange(ref armed, 0) != 1) return;
+            var where = command.CommandText.IndexOf("WHERE", StringComparison.OrdinalIgnoreCase);
+            var predicate = where < 0 ? string.Empty : command.CommandText[where..];
+            ObservedAtomicLeaseGuard = predicate.Contains("lease_owner", StringComparison.OrdinalIgnoreCase) &&
+                predicate.Contains("lease_expires_at_utc", StringComparison.OrdinalIgnoreCase) &&
+                predicate.Contains("status", StringComparison.OrdinalIgnoreCase);
+            reached.TrySetResult();
+            await released.Task.WaitAsync(cancellationToken);
+        }
     }
 }

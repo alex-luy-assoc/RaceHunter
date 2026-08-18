@@ -66,7 +66,7 @@ public sealed class WorkLeaseLostException(string message) : InvalidOperationExc
 
 public interface IPlanWorkHandler
 {
-    Task ExecuteAsync(Guid huntId, CancellationToken cancellationToken);
+    Task ExecuteAsync(Guid huntId, Guid workId, string leaseOwner, WorkCheckpoint? checkpoint, CancellationToken cancellationToken);
 }
 
 public interface ICampaignWorkHandler

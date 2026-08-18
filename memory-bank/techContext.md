@@ -126,6 +126,8 @@ Verified Phase 3 capabilities and commands:
 
 Phase 3 compliance remediation raised the verified suite to 95 .NET tests plus 2 Vitest UI tests. `npm test --prefix src/RaceHunter.Web` verifies that Live Campaign loads current run state and every persisted 100-row event page before opening SSE after the latest database cursor. Lease takeover uses conditional PostgreSQL updates, retry ceilings come from persisted subject budgets, and duration recovery subtracts elapsed time from the original run start.
 
+The second Phase 3 compliance remediation raised the verified suite to 97 .NET tests plus 2 Vitest UI tests. Agent decision/event/checkpoint persistence now conditionally updates the active lease owner, status, and expiry inside the same transaction before inserting decision evidence. Planning model-call usage, completed plans, and terminal planning outcomes are checkpointed across delivery attempts; each recovered `PlanningContext` receives only the remaining model-call budget.
+
 The live Vertex invocation and deployed Pub/Sub/Cloud Run smoke remain approval-gated. Ordinary tests and local smoke use deterministic model fakes and the Pub/Sub emulator and require no Google credentials.
 
 ## Open Technical Decisions

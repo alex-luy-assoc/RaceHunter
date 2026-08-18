@@ -5,6 +5,7 @@ using RaceHunter.Application.Hunts;
 using RaceHunter.Application.Messaging;
 using RaceHunter.Contracts;
 using RaceHunter.Domain.Budgets;
+using RaceHunter.Gemini;
 using RaceHunter.Worker.Execution;
 using Xunit;
 
@@ -65,12 +66,36 @@ public sealed class WorkDispatcherTests
     {
         var hunt = new HuntSnapshot(Guid.NewGuid(), "test", ExperimentBudget.PublicSandbox, HuntStatus.Planning, null, null, null, DateTime.UtcNow);
         var store = new FakeHuntStore(hunt);
-        var handler = new PlanWorkHandler(store, new TransientPlanner());
+        var inbox = new PlanningInbox();
+        var handler = new PlanWorkHandler(store, new TransientPlanner(), inbox);
 
-        var error = await Assert.ThrowsAsync<ModelOutputException>(() => handler.ExecuteAsync(hunt.Id, CancellationToken.None));
+        var error = await Assert.ThrowsAsync<ModelOutputException>(() =>
+            handler.ExecuteAsync(hunt.Id, Guid.NewGuid(), "worker-a", null, CancellationToken.None));
 
         Assert.Equal(ModelOutcome.TransientFailure, error.Outcome);
         Assert.Equal(0, store.PlanningFailedCalls);
+    }
+
+    [Fact]
+    public async Task Planning_model_budget_is_cumulative_across_transient_redelivery()
+    {
+        var budget = new ExperimentBudget(2, 2, 4, 1, TimeSpan.FromSeconds(30), 5);
+        var hunt = new HuntSnapshot(Guid.NewGuid(), "test", budget, HuntStatus.Planning, null, null, null, DateTime.UtcNow);
+        var store = new FakeHuntStore(hunt);
+        var inbox = new PlanningInbox();
+        var model = new AlwaysTransientModelClient();
+        var handler = new PlanWorkHandler(store, new ScenarioPlanner(model), inbox);
+        var workId = Guid.NewGuid();
+
+        await Assert.ThrowsAsync<ModelOutputException>(() =>
+            handler.ExecuteAsync(hunt.Id, workId, "worker-a", null, CancellationToken.None));
+        var usageCheckpoint = Assert.IsType<WorkCheckpoint>(inbox.LastCheckpoint);
+        await handler.ExecuteAsync(hunt.Id, workId, "worker-b", usageCheckpoint, CancellationToken.None);
+
+        Assert.Equal(1, model.Calls);
+        Assert.Equal(1, store.PlanningFailedCalls);
+        Assert.Equal(ModelOutcome.BudgetExhausted, store.LastFailureOutcome);
+        Assert.Contains("\"modelCallsConsumed\":1", inbox.LastCheckpoint!.StateJson, StringComparison.Ordinal);
     }
 
     private static WorkDispatcher CreateDispatcher(
@@ -117,7 +142,7 @@ public sealed class WorkDispatcherTests
         public bool WaitForCancellation { get; init; }
         public bool CancellationObserved { get; private set; }
         public Exception? Failure { get; init; }
-        public async Task ExecuteAsync(Guid huntId, CancellationToken cancellationToken)
+        public async Task ExecuteAsync(Guid huntId, Guid workId, string leaseOwner, WorkCheckpoint? checkpoint, CancellationToken cancellationToken)
         {
             Calls++;
             if (Failure is not null) throw Failure;
@@ -155,12 +180,33 @@ public sealed class WorkDispatcherTests
     private sealed class FakeHuntStore(HuntSnapshot hunt) : IHuntStore
     {
         public int PlanningFailedCalls { get; private set; }
+        public ModelOutcome? LastFailureOutcome { get; private set; }
         public Task AddAsync(HuntSnapshot value, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task<HuntSnapshot?> GetAsync(Guid huntId, CancellationToken cancellationToken) => Task.FromResult<HuntSnapshot?>(hunt);
         public Task<HuntSnapshot?> GetByRunAsync(Guid runId, CancellationToken cancellationToken) => Task.FromResult<HuntSnapshot?>(null);
         public Task<IReadOnlyList<HuntEvent>> GetEventsAsync(Guid huntId, long after, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<HuntEvent>>([]);
         public Task<WorkDispatch?> RequestPlanningAsync(Guid huntId, DateTime nowUtc, CancellationToken cancellationToken) => Task.FromResult<WorkDispatch?>(null);
         public Task SavePlanAsync(Guid huntId, ScenarioPlan plan, DateTime nowUtc, CancellationToken cancellationToken) => Task.CompletedTask;
-        public Task MarkPlanningFailedAsync(Guid huntId, ModelOutcome outcome, string sanitizedDiagnostic, DateTime nowUtc, CancellationToken cancellationToken) { PlanningFailedCalls++; return Task.CompletedTask; }
+        public Task MarkPlanningFailedAsync(Guid huntId, ModelOutcome outcome, string sanitizedDiagnostic, DateTime nowUtc, CancellationToken cancellationToken) { PlanningFailedCalls++; LastFailureOutcome = outcome; return Task.CompletedTask; }
+    }
+
+    private sealed class PlanningInbox : IWorkInbox
+    {
+        public WorkCheckpoint? LastCheckpoint { get; private set; }
+        public Task<WorkAcquireResult> TryAcquireAsync(Guid workId, string messageId, string owner, DateTime nowUtc, TimeSpan leaseDuration, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<bool> HeartbeatAsync(Guid workId, string owner, DateTime nowUtc, TimeSpan leaseDuration, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task SaveCheckpointAsync(Guid workId, string owner, WorkCheckpoint checkpoint, CancellationToken cancellationToken) { LastCheckpoint = checkpoint; return Task.CompletedTask; }
+        public Task CompleteAsync(Guid workId, string owner, DateTime nowUtc, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<WorkFailureOutcome> RecordFailureAsync(Guid workId, string owner, WorkFailure failure, int maxRetries, DateTime nowUtc, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private sealed class AlwaysTransientModelClient : IStructuredModelClient
+    {
+        public int Calls { get; private set; }
+        public Task<ModelResponse> GenerateAsync(ModelRequest request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            throw new ModelOutputException(ModelOutcome.TransientFailure, "provider unavailable");
+        }
     }
 }

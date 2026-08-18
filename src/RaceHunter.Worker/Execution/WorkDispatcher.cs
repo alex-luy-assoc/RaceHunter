@@ -51,7 +51,7 @@ internal sealed class WorkDispatcher(
             switch (message.Kind)
             {
                 case "PlanRequested":
-                    await planHandler.ExecuteAsync(message.SubjectId, processing.Token);
+                    await planHandler.ExecuteAsync(message.SubjectId, message.WorkId, owner, acquired.Checkpoint, processing.Token);
                     await inbox.SaveCheckpointAsync(message.WorkId, owner, new WorkCheckpoint("plan-finished", 0, "{}", DateTime.UtcNow), processing.Token);
                     break;
                 case "RunRequested":
