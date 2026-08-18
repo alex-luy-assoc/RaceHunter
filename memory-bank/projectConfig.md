@@ -21,7 +21,8 @@ worktree_root: ../ala-worktrees/racehunter/
 ## Team
 
 ```yaml
-team: {}
+team:
+  alexander1113@hotmail.com: Alex
 ```
 
 ## UAT
