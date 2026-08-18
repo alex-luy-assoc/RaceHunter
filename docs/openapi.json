@@ -138,7 +138,7 @@
         "required": ["id", "status", "maxActors", "maxConcurrentActors", "maxRequests", "maxModelCalls", "maxDurationSeconds", "createdAtUtc"],
         "properties": {
           "id": { "type": "string", "format": "uuid" },
-          "status": { "type": "string", "enum": ["Queued", "Running", "Completed", "Failed", "Cancelled"] },
+          "status": { "type": "string", "enum": ["Queued", "Running", "Reproducing", "Minimizing", "Completed", "Failed", "Cancelled"] },
           "maxActors": { "type": "integer", "minimum": 1 },
           "maxConcurrentActors": { "type": "integer", "minimum": 1 },
           "maxRequests": { "type": "integer", "minimum": 1 },

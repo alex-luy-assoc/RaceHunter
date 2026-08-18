@@ -31,3 +31,18 @@ export function appendPersistedEvent(events: RunEvent[], incoming: RunEvent) {
   if (events.some(item => item.cursor === incoming.cursor)) return events
   return [...events, incoming].sort((left, right) => left.cursor - right.cursor)
 }
+
+const lifecycleOrder: Record<string, number> = {
+  Queued: 0,
+  Running: 1,
+  Reproducing: 2,
+  Minimizing: 3
+}
+
+export function projectLifecycleEvent(run: RunResponse, incoming: RunEvent): RunResponse {
+  const projected = incoming.kind === 'reproduction-started' ? 'Reproducing'
+    : incoming.kind === 'minimization-started' ? 'Minimizing'
+    : undefined
+  if (!projected || !(run.status in lifecycleOrder)) return run
+  return lifecycleOrder[projected] > lifecycleOrder[run.status] ? { ...run, status: projected } : run
+}

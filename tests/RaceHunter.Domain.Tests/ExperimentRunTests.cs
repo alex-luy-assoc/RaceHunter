@@ -75,4 +75,58 @@ public sealed class ExperimentRunTests
         Assert.Equal(RunStatus.Cancelled, run.Status);
         Assert.Throws<DomainException>(() => run.Complete(DateTime.UnixEpoch.AddSeconds(3)));
     }
+
+    [Fact]
+    public void Finding_lifecycle_records_ordered_reproduction_and_minimization_transitions()
+    {
+        var run = ExperimentRun.Queue(Guid.NewGuid(), ExperimentBudget.PublicSandbox, DateTime.UnixEpoch);
+        run.Start(DateTime.UnixEpoch.AddSeconds(1));
+
+        Assert.True(run.BeginReproduction(DateTime.UnixEpoch.AddSeconds(2)));
+        Assert.True(run.BeginMinimization(DateTime.UnixEpoch.AddSeconds(3)));
+
+        Assert.Equal(RunStatus.Minimizing, run.Status);
+        Assert.Equal(
+            [(1L, "reproduction-started"), (2L, "minimization-started")],
+            run.Events.Select(item => (item.Cursor, item.Kind)));
+    }
+
+    [Fact]
+    public void Rehydrated_finding_lifecycle_does_not_duplicate_or_regress_transitions()
+    {
+        var run = ExperimentRun.Rehydrate(
+            Guid.NewGuid(),
+            ExperimentBudget.PublicSandbox,
+            RunStatus.Minimizing,
+            DateTime.UnixEpoch,
+            DateTime.UnixEpoch.AddSeconds(1),
+            null,
+            null,
+            [
+                new RunEvent(1, "reproduction-started", "Reproduction started.", DateTime.UnixEpoch.AddSeconds(2)),
+                new RunEvent(2, "minimization-started", "Minimization started.", DateTime.UnixEpoch.AddSeconds(3))
+            ]);
+
+        Assert.False(run.BeginReproduction(DateTime.UnixEpoch.AddSeconds(4)));
+        Assert.False(run.BeginMinimization(DateTime.UnixEpoch.AddSeconds(5)));
+        Assert.Equal(RunStatus.Minimizing, run.Status);
+        Assert.Equal(2, run.Events.Count);
+    }
+
+    [Theory]
+    [InlineData(RunStatus.Reproducing)]
+    [InlineData(RunStatus.Minimizing)]
+    public void Active_finding_phases_can_finish_and_remain_terminally_immutable(RunStatus phase)
+    {
+        var run = ExperimentRun.Queue(Guid.NewGuid(), ExperimentBudget.PublicSandbox, DateTime.UnixEpoch);
+        run.Start(DateTime.UnixEpoch.AddSeconds(1));
+        run.BeginReproduction(DateTime.UnixEpoch.AddSeconds(2));
+        if (phase == RunStatus.Minimizing) run.BeginMinimization(DateTime.UnixEpoch.AddSeconds(3));
+
+        run.Complete(DateTime.UnixEpoch.AddSeconds(4));
+
+        Assert.Equal(RunStatus.Completed, run.Status);
+        Assert.Throws<DomainException>(() => run.BeginReproduction(DateTime.UnixEpoch.AddSeconds(5)));
+        Assert.Throws<DomainException>(() => run.BeginMinimization(DateTime.UnixEpoch.AddSeconds(5)));
+    }
 }

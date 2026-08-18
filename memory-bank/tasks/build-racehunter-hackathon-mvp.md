@@ -394,8 +394,8 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] Phase 4: Failure reproduction, deterministic minimization, immutable replay, causal timeline, judge evidence, and vulnerable-versus-fixed Playwright golden path
 - [ ] Phase 5: Security, observability, 100-actor limits, Docker/Terraform staging verification, documentation, architecture diagram, and four-minute submission package
 
-**Phase 4 Test Results**: 152/152 tests passing across 14 suites (143 .NET, 5 Vitest, 3 mocked Playwright, 1 real Compose-backed Playwright); remediation coverage includes restart boundaries, receiver idempotency, trace-aware budgets, replay-key scope, accessible minimized steps, and API validation.
-**Phase 4 Code Review**: Compliance remediation review completed after adversarial recovery, key-scope, and budget iterations; security and dependency audits passed with no remaining upgrades.
+**Phase 4 Test Results**: 165/165 checks passing across 14 suites (152 .NET, 8 Vitest, 4 mocked Playwright, 1 real Compose-backed Playwright); remediation coverage includes restart boundaries, receiver idempotency, trace-aware budgets, replay-key scope, accessible minimized steps, API validation, and persisted refresh-reconstructable reproduction/minimization lifecycle transitions.
+**Phase 4 Code Review**: Compliance remediation attempt 2 completed after adversarial lifecycle, recovery, cursor-ordering, refresh, key-scope, and budget iterations; security and dependency audits passed with no remaining upgrades.
 
 ## Creative Phases
 
@@ -483,9 +483,12 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - Phase 4 compliance remediation RED gate: COMPLETE — adversarial tests first exposed absent per-probe restart state, receiver crash-gap idempotency, accessible minimized schedule rendering, oversized/padded replay-key validation, and a real browser/backend journey; further RED cases covered actor-step and cross-artifact key collisions, partial checkpoint recovery, and pre-call request-budget reservation (2026-08-18)
 - Phase 4 compliance remediation GREEN gate: COMPLETE — PostgreSQL now stores keyed reproduction/minimization/proof checkpoints; the reference target durably reuses scoped reset/order outcomes and reports completed correlations for trace-aware preflight; deterministic final IDs/fingerprints survive restart; the UI renders actor/operation/step/offset evidence; normalized 1..160 replay keys fail with RFC 9457 before target work; and real Compose-backed Playwright proves vulnerable/fixed plus refresh without route mocks (2026-08-18)
 - Phase 4 compliance remediation integration: COMPLETE — 152/152 checks passed across 14 suites, including 143 .NET, 5 Vitest, 3 mocked Playwright, and 1 real Docker-backed Playwright; Release/Vite builds, formatting, lint, Compose/OpenAPI validation, security audits, and diff checks passed, and isolated test resources were removed (2026-08-18)
+- Phase 4 compliance remediation attempt 2 RED gate: COMPLETE — focused domain/API suites failed to compile without `Reproducing` and `Minimizing`; the worker suite failed on the absent persist-before-work coordinator; Vitest lacked lifecycle projection; and Playwright remained at generic `Running` after a persisted `reproduction-started` SSE event (2026-08-18)
+- Phase 4 compliance remediation attempt 2 GREEN gate: COMPLETE — the legal monotonic run lifecycle now persists `Reproducing` and `Minimizing` plus ordered run events before probe work; recovery does not duplicate or regress phases; active phases can fail, cancel, or complete while terminal state remains immutable; API refresh reconstructs both phases from PostgreSQL; and SSE projects the same vocabulary without regressing on replayed older cursors (2026-08-18)
+- Phase 4 compliance remediation attempt 2 integration: COMPLETE — 165/165 checks passed across 14 suites: 152 .NET, 8 Vitest, 4 mocked Playwright, and 1 fresh-volume real Docker-backed Playwright. Release/Vite builds, formatting, TypeScript lint, Compose/OpenAPI validation, three Docker image builds, and NuGet/npm vulnerability audits passed; isolated containers and volumes were removed. No credentials, live model calls, Google Cloud contact, remote, push, PR, or deployment occurred (2026-08-18)
 
 ### Current Build Step
 **Step**: Step 11 - Phase Git Completion
 **Status**: COMPLETE
 **Completed**: 2026-08-18
-**Output**: Phase 4 committed locally on the feature branch; execution state advances to Phase 5 with durable RED/GREEN, verification, review, documentation, and Docker evidence. No remote, push, PR, or deployment was created.
+**Output**: Phase 4 and both compliance remediations are complete locally on the feature branch; execution state remains ready to resume at Phase 5 with durable RED/GREEN, verification, review, documentation, and Docker evidence. No remote, push, PR, or deployment was created.

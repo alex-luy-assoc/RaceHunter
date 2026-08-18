@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appendPersistedEvent, loadPersistedRunProgress } from './runProgress'
+import { appendPersistedEvent, loadPersistedRunProgress, projectLifecycleEvent } from './runProgress'
 import type { RunEvent, RunResponse } from './contracts'
 
 const run: RunResponse = {
@@ -45,5 +45,29 @@ describe('persisted run progress', () => {
     const history = [event(1), event(3)]
     expect(appendPersistedEvent(history, event(3))).toBe(history)
     expect(appendPersistedEvent(history, event(2)).map(item => item.cursor)).toEqual([1, 2, 3])
+  })
+
+  it('projects persisted reproduction and minimization vocabulary into the live status', () => {
+    const reproduction = { ...event(2), kind: 'reproduction-started' }
+    const minimization = { ...event(3), kind: 'minimization-started' }
+
+    expect(projectLifecycleEvent(run, reproduction).status).toBe('Reproducing')
+    expect(projectLifecycleEvent({ ...run, status: 'Reproducing' }, minimization).status).toBe('Minimizing')
+    expect(projectLifecycleEvent({ ...run, status: 'Minimizing' }, reproduction).status).toBe('Minimizing')
+  })
+
+  it.each(['Reproducing', 'Minimizing'])('refresh reconstructs the %s phase from PostgreSQL state', async status => {
+    const current = { ...run, status }
+    const result = await loadPersistedRunProgress('run-1', {
+      getRun: async () => current,
+      getEvents: async () => [
+        { ...event(1), kind: 'campaign-started' },
+        { ...event(2), kind: 'reproduction-started' },
+        ...(status === 'Minimizing' ? [{ ...event(3), kind: 'minimization-started' }] : [])
+      ]
+    })
+
+    expect(result.run.status).toBe(status)
+    expect(result.events.map(item => item.cursor)).toEqual(status === 'Minimizing' ? [1, 2, 3] : [1, 2])
   })
 })

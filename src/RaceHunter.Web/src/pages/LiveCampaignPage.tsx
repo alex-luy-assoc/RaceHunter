@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { getRun } from '../api/client'
-import { appendPersistedEvent, loadPersistedRunProgress } from '../api/runProgress'
+import { appendPersistedEvent, loadPersistedRunProgress, projectLifecycleEvent } from '../api/runProgress'
 import type { RunEvent, RunResponse } from '../api/contracts'
 
-const eventKinds = ['campaign-started', 'agent-decision', 'deterministic-violation-observed', 'finding-ready', 'reproduction-inconclusive', 'campaign-no-finding', 'budget-exhausted', 'model-failed', 'worker-failed', 'work-dead-lettered']
+const eventKinds = ['campaign-started', 'agent-decision', 'deterministic-violation-observed', 'reproduction-started', 'minimization-started', 'finding-ready', 'reproduction-inconclusive', 'campaign-no-finding', 'budget-exhausted', 'model-failed', 'worker-failed', 'work-dead-lettered']
 
 export function LiveCampaignPage({ runId }: { runId: string }) {
   const cursorKey = `racehunter:run-cursor:${runId}`
@@ -25,6 +25,7 @@ export function LiveCampaignPage({ runId }: { runId: string }) {
         const receive = (incoming: Event) => {
           const item = JSON.parse((incoming as MessageEvent<string>).data) as RunEvent
           setEvents(current => appendPersistedEvent(current, item))
+          setRun(current => current ? projectLifecycleEvent(current, item) : current)
           localStorage.setItem(cursorKey, String(item.cursor))
           if (item.kind === 'finding-ready') {
             void getRun(runId).then(latest => {

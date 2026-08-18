@@ -7,6 +7,8 @@ public enum RunStatus
 {
     Queued,
     Running,
+    Reproducing,
+    Minimizing,
     Completed,
     Failed,
     Cancelled
@@ -35,6 +37,7 @@ public sealed class ExperimentRun
     public DateTime? CompletedAtUtc { get; private set; }
     public DateTime? CancellationRequestedAtUtc { get; private set; }
     public IReadOnlyList<RunEvent> Events => events;
+    public bool IsActive => Status is RunStatus.Running or RunStatus.Reproducing or RunStatus.Minimizing;
 
     public static ExperimentRun Queue(Guid id, ExperimentBudget budget, DateTime createdAtUtc) =>
         new(id, budget, RunStatus.Queued, createdAtUtc);
@@ -76,6 +79,24 @@ public sealed class ExperimentRun
         return item;
     }
 
+    public bool BeginReproduction(DateTime nowUtc)
+    {
+        if (Status is RunStatus.Reproducing or RunStatus.Minimizing) return false;
+        RequireStatus(RunStatus.Running);
+        Status = RunStatus.Reproducing;
+        AppendEvent("reproduction-started", "Measuring the deterministic violation across three persisted reproductions.", nowUtc);
+        return true;
+    }
+
+    public bool BeginMinimization(DateTime nowUtc)
+    {
+        if (Status == RunStatus.Minimizing) return false;
+        RequireStatus(RunStatus.Reproducing);
+        Status = RunStatus.Minimizing;
+        AppendEvent("minimization-started", "Reducing the verified failing schedule while preserving deterministic evidence.", nowUtc);
+        return true;
+    }
+
     public bool RequestCancellation(DateTime nowUtc)
     {
         if (Status is RunStatus.Completed or RunStatus.Failed or RunStatus.Cancelled || CancellationRequestedAtUtc.HasValue) return false;
@@ -85,21 +106,21 @@ public sealed class ExperimentRun
 
     public void Complete(DateTime nowUtc)
     {
-        RequireStatus(RunStatus.Running);
+        RequireActive();
         Status = RunStatus.Completed;
         CompletedAtUtc = EnsureUtc(nowUtc);
     }
 
     public void Cancel(DateTime nowUtc)
     {
-        RequireStatus(RunStatus.Running);
+        RequireActive();
         Status = RunStatus.Cancelled;
         CompletedAtUtc = EnsureUtc(nowUtc);
     }
 
     public void Fail(DateTime nowUtc)
     {
-        RequireStatus(RunStatus.Running);
+        RequireActive();
         Status = RunStatus.Failed;
         CompletedAtUtc = EnsureUtc(nowUtc);
     }
@@ -107,6 +128,11 @@ public sealed class ExperimentRun
     private void RequireStatus(RunStatus expected)
     {
         if (Status != expected) throw new DomainException($"Run must be {expected} but is {Status}.");
+    }
+
+    private void RequireActive()
+    {
+        if (!IsActive) throw new DomainException($"Run must be active but is {Status}.");
     }
 
     private static DateTime EnsureUtc(DateTime value) => value.Kind == DateTimeKind.Utc

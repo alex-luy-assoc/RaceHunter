@@ -148,7 +148,7 @@ internal sealed class CampaignRunner(
 
             if (result.Outcome == CampaignOutcome.VerifiedViolation)
             {
-                var findingId = await FinalizeFindingAsync(run, plan, invariant, result, attemptExecutor, target, findings, probeCheckpoints, traces, configuration, bounded.Token);
+                var findingId = await FinalizeFindingAsync(run, plan, invariant, result, attemptExecutor, target, runs, findings, probeCheckpoints, traces, configuration, bounded.Token);
                 run.AppendEvent(
                     findingId.HasValue ? "finding-ready" : "reproduction-inconclusive",
                     findingId.HasValue
@@ -174,7 +174,7 @@ internal sealed class CampaignRunner(
         catch (OperationCanceledException) when (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             var durable = await runs.GetAsync(runId, CancellationToken.None) ?? run;
-            if (durable.Status == RunStatus.Running)
+            if (durable.IsActive)
             {
                 durable.AppendEvent("budget-exhausted", "Campaign duration budget or cancellation boundary stopped execution.", DateTime.UtcNow);
                 if (durable.CancellationRequestedAtUtc.HasValue) durable.Cancel(DateTime.UtcNow);
@@ -190,7 +190,7 @@ internal sealed class CampaignRunner(
         catch (Exception exception)
         {
             var durable = await runs.GetAsync(runId, CancellationToken.None) ?? run;
-            if (durable.Status == RunStatus.Running)
+            if (durable.IsActive)
             {
                 durable.AppendEvent("worker-failed", $"Worker failed with category {Classify(exception)}.", DateTime.UtcNow);
                 durable.Fail(DateTime.UtcNow);
@@ -215,6 +215,7 @@ internal sealed class CampaignRunner(
         AdaptiveCampaignResult result,
         ReferenceCampaignAttemptExecutor attemptExecutor,
         ReferenceInventoryTargetClient target,
+        IRunStore runs,
         IFindingStore findings,
         IFindingProbeCheckpointStore probeCheckpoints,
         ITraceStore traces,
@@ -252,9 +253,17 @@ internal sealed class CampaignRunner(
                     token);
                 return new ReplayObservation(attempt.InvariantOutcome, attempt.TraceReferences, attempt.RequestsConsumed);
             });
-        var reproduction = await new ReproductionVerifier().VerifyReferenceAsync(original, probe, cancellationToken);
+        var reproduction = await PersistedRunLifecycle.RunReproductionAsync(
+            run,
+            runs,
+            token => new ReproductionVerifier().VerifyReferenceAsync(original, probe, token),
+            cancellationToken);
         if (!reproduction.Verified) return null;
-        var minimized = await new FailureMinimizer().MinimizeAsync(original, probe, cancellationToken);
+        var minimized = await PersistedRunLifecycle.RunMinimizationAsync(
+            run,
+            runs,
+            token => new FailureMinimizer().MinimizeAsync(original, probe, token),
+            cancellationToken);
         if (minimized.Candidate.ActorCount != 2) return null;
 
         var artifact = CreateReplayArtifact(run, plan, minimized.Candidate);

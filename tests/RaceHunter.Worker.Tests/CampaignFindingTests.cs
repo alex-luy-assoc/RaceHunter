@@ -163,6 +163,46 @@ public sealed class CampaignFindingTests
         Assert.Equal(1, executions);
     }
 
+    [Fact]
+    public async Task Reproduction_and_minimization_are_persisted_before_their_target_work()
+    {
+        var run = ExperimentRun.Queue(Guid.NewGuid(), ExperimentBudget.PublicSandbox, DateTime.UnixEpoch);
+        run.Start(DateTime.UnixEpoch.AddSeconds(1));
+        var store = new RecordingRunStore(run);
+
+        await PersistedRunLifecycle.RunReproductionAsync(run, store, _ =>
+        {
+            Assert.Equal(RunStatus.Reproducing, store.LastPersistedStatus);
+            Assert.Equal("reproduction-started", store.LastPersistedEvents.Last().Kind);
+            return Task.FromResult(1);
+        }, CancellationToken.None);
+        await PersistedRunLifecycle.RunMinimizationAsync(run, store, _ =>
+        {
+            Assert.Equal(RunStatus.Minimizing, store.LastPersistedStatus);
+            Assert.Equal("minimization-started", store.LastPersistedEvents.Last().Kind);
+            return Task.FromResult(2);
+        }, CancellationToken.None);
+
+        Assert.Equal([RunStatus.Reproducing, RunStatus.Minimizing], store.SavedStatuses);
+    }
+
+    [Fact]
+    public async Task Recovery_in_minimization_does_not_duplicate_or_regress_lifecycle_history()
+    {
+        var run = ExperimentRun.Queue(Guid.NewGuid(), ExperimentBudget.PublicSandbox, DateTime.UnixEpoch);
+        run.Start(DateTime.UnixEpoch.AddSeconds(1));
+        run.BeginReproduction(DateTime.UnixEpoch.AddSeconds(2));
+        run.BeginMinimization(DateTime.UnixEpoch.AddSeconds(3));
+        var store = new RecordingRunStore(run);
+
+        await PersistedRunLifecycle.RunReproductionAsync(run, store, _ => Task.FromResult(1), CancellationToken.None);
+        await PersistedRunLifecycle.RunMinimizationAsync(run, store, _ => Task.FromResult(2), CancellationToken.None);
+
+        Assert.Empty(store.SavedStatuses);
+        Assert.Equal(RunStatus.Minimizing, run.Status);
+        Assert.Equal(["reproduction-started", "minimization-started"], run.Events.Select(item => item.Kind));
+    }
+
     private static ReplayCandidate Candidate(int actors) => new(
         "checkpoint-interleaving",
         1729,
@@ -215,5 +255,25 @@ public sealed class CampaignFindingTests
             }
             return Task.FromResult(reused ? observation with { RequestsConsumed = 0 } : observation);
         }
+    }
+
+    private sealed class RecordingRunStore(ExperimentRun run) : IRunStore
+    {
+        public List<RunStatus> SavedStatuses { get; } = [];
+        public RunStatus? LastPersistedStatus { get; private set; }
+        public IReadOnlyList<RunEvent> LastPersistedEvents { get; private set; } = [];
+
+        public Task AddAsync(ExperimentRun value, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task SaveAsync(ExperimentRun value, CancellationToken cancellationToken)
+        {
+            LastPersistedStatus = value.Status;
+            LastPersistedEvents = value.Events.ToArray();
+            SavedStatuses.Add(value.Status);
+            return Task.CompletedTask;
+        }
+        public Task<ExperimentRun?> GetAsync(Guid id, CancellationToken cancellationToken) => Task.FromResult<ExperimentRun?>(run);
+        public Task<IReadOnlyList<RunEvent>> GetEventsAsync(Guid id, long after, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<RunEvent>>(run.Events.Where(item => item.Cursor > after).ToArray());
+        public Task<bool> RequestCancellationAsync(Guid id, DateTime requestedAtUtc, CancellationToken cancellationToken) => Task.FromResult(false);
     }
 }

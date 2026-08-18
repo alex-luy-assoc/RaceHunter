@@ -45,6 +45,7 @@
 - Bound all user-controlled work with channels and explicit limiters; never use unbounded `Task.WhenAll`.
 - API run creation persists intent and publishes an idempotent message; the worker owns campaign execution.
 - Model run lifecycle as a legal state machine. Terminal states are immutable.
+- Persist `Running -> Reproducing -> Minimizing` as monotonic run-state transitions with ordered run events before entering each probe phase. Recovery may replay already-checkpointed probe orchestration, but it must not append duplicate phase events or regress a later persisted status; Live Campaign rebuilds the current phase from PostgreSQL before resuming SSE after the durable cursor.
 - Use leases or heartbeats for active ownership, persist attempt boundaries/checkpoints, and recover interrupted work explicitly.
 - Retry only classified transient failures with bounded exponential backoff and jitter. Never automatically retry unsafe target operations without an idempotency mechanism.
 - Dead-letter poison messages and surface them through operations state.

@@ -56,6 +56,35 @@ public sealed class SseCursorTests(ApiDatabaseFixture fixture) : IClassFixture<A
         Assert.Contains("event: second-event", body, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(RunStatus.Reproducing)]
+    [InlineData(RunStatus.Minimizing)]
+    public async Task Run_refresh_reconstructs_the_current_persisted_finding_phase(RunStatus phase)
+    {
+        var run = await CreateActivePhaseRunAsync(phase);
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+
+        var json = await client.GetStringAsync($"/api/runs/{run.Id}");
+
+        Assert.Contains($"\"status\":\"{phase}\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cursor_replay_preserves_reproduction_before_minimization()
+    {
+        var run = await CreateActivePhaseRunAsync(RunStatus.Minimizing);
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+
+        var json = await client.GetStringAsync($"/api/runs/{run.Id}/events?after=1");
+        var reproduction = json.IndexOf("reproduction-started", StringComparison.Ordinal);
+        var minimization = json.IndexOf("minimization-started", StringComparison.Ordinal);
+
+        Assert.True(reproduction >= 0);
+        Assert.True(minimization > reproduction);
+    }
+
     private WebApplicationFactory<Program> CreateFactory() => new WebApplicationFactory<Program>()
         .WithWebHostBuilder(builder =>
         {
@@ -79,6 +108,22 @@ public sealed class SseCursorTests(ApiDatabaseFixture fixture) : IClassFixture<A
         run.AppendEvent("first-event", "one", DateTime.UtcNow);
         run.AppendEvent("second-event", "two", DateTime.UtcNow);
         run.Complete(DateTime.UtcNow);
+        await store.SaveAsync(run, CancellationToken.None);
+        return run;
+    }
+
+    private async Task<ExperimentRun> CreateActivePhaseRunAsync(RunStatus phase)
+    {
+        await using var context = new RaceHunterDbContext(new DbContextOptionsBuilder<RaceHunterDbContext>()
+            .UseNpgsql(fixture.Database.GetConnectionString()).Options);
+        await context.Database.MigrateAsync();
+        var store = new RunStore(context);
+        var run = ExperimentRun.Queue(Guid.NewGuid(), ExperimentBudget.PublicSandbox, DateTime.UtcNow);
+        await store.AddAsync(run, CancellationToken.None);
+        run.Start(DateTime.UtcNow);
+        run.AppendEvent("campaign-started", "Campaign started.", DateTime.UtcNow);
+        run.BeginReproduction(DateTime.UtcNow);
+        if (phase == RunStatus.Minimizing) run.BeginMinimization(DateTime.UtcNow);
         await store.SaveAsync(run, CancellationToken.None);
         return run;
     }
