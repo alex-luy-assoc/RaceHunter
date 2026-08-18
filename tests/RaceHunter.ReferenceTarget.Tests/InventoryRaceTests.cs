@@ -219,6 +219,35 @@ public sealed class InventoryRaceTests(ReferenceTargetFixture fixture) : IClassF
     }
 
     [Fact]
+    public async Task Manual_setup_receiver_reuses_the_stored_outcome_without_resetting_twice()
+    {
+        var key = $"manual-setup-{Guid.NewGuid():N}";
+        await ManualResetWithKeyAsync(1, "fixed", key);
+        await Client.PostAsJsonAsync("/api/orders", new { actorId = "actor", quantity = 1, checkpoint = "none" });
+
+        var replay = await ManualResetWithKeyAsync(1, "fixed", key);
+        var state = await Client.GetFromJsonAsync<InventoryState>("/api/inventory");
+
+        Assert.Contains("\"replayed\":true", await replay.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Equal(1, state!.SuccessfulOrders);
+        Assert.Equal(0, state.Available);
+    }
+
+    [Fact]
+    public async Task Concurrent_manual_setup_deliveries_serialize_to_one_original_outcome()
+    {
+        var key = $"manual-concurrent-{Guid.NewGuid():N}";
+
+        var responses = await Task.WhenAll(
+            ManualResetWithKeyAsync(1, "fixed", key),
+            ManualResetWithKeyAsync(1, "fixed", key));
+        var bodies = await Task.WhenAll(responses.Select(response => response.Content.ReadAsStringAsync()));
+
+        Assert.Single(bodies, body => body.Contains("\"replayed\":false", StringComparison.Ordinal));
+        Assert.Single(bodies, body => body.Contains("\"replayed\":true", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Replayed_order_still_participates_in_controlled_checkpoint_recovery()
     {
         const string scope = "partial-recovery-scope";
@@ -296,6 +325,20 @@ public sealed class InventoryRaceTests(ReferenceTargetFixture fixture) : IClassF
         if (replayScope is not null) request.Headers.Add("X-RaceHunter-Replay-Scope", replayScope);
         var response = await Client.SendAsync(request);
         response.EnsureSuccessStatusCode();
+    }
+
+    private async Task<HttpResponseMessage> ManualResetWithKeyAsync(int quantity, string mode, string idempotencyKey)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/manual/reset")
+        {
+            Content = JsonContent.Create(new { quantity, mode })
+        };
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "manual-test-token");
+        request.Headers.Add("X-RaceHunter-Idempotency-Key", idempotencyKey);
+        request.Headers.Add("X-RaceHunter-Replay-Scope", idempotencyKey);
+        var response = await Client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return response;
     }
 
     private sealed record InventoryState(int Available, int SuccessfulOrders, string Mode);

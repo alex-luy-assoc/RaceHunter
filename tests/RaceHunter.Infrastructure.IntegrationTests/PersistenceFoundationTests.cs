@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using RaceHunter.Application.Abstractions;
+using RaceHunter.Application.Hunts;
 using RaceHunter.Application.Projects;
 using RaceHunter.Domain.Budgets;
 using RaceHunter.Domain.Invariants;
@@ -182,6 +183,43 @@ public sealed class PersistenceFoundationTests(PersistenceDatabaseFixture fixtur
         Assert.True(JsonNode.DeepEquals(JsonNode.Parse(checkpoint.CandidateJson), JsonNode.Parse(loaded.CandidateJson)));
         Assert.Equal(checkpoint.TraceReferences, loaded.TraceReferences);
         Assert.Equal(1, await context.FindingProbeCheckpoints.CountAsync(item => item.RunId == run.Id));
+    }
+
+    [Fact]
+    public async Task Manual_setup_claim_persists_retry_ambiguity_completion_and_physical_budget()
+    {
+        await using var context = CreateContext();
+        await context.Database.MigrateAsync();
+        var run = ExperimentRun.Queue(Guid.NewGuid(), new ExperimentBudget(4, 4, 4, 1, TimeSpan.FromMinutes(1), 1), DateTime.UtcNow);
+        await new RunStore(context).AddAsync(run, CancellationToken.None);
+        var target = new ManualTargetSnapshot(Guid.NewGuid(), new Uri($"https://{Guid.NewGuid():N}.example.test"), "api.example.test",
+            "projects/demo/secrets/token/versions/latest",
+            [new ManualTargetOperation("setup", "POST", "/reset", "{}", new Dictionary<string, string>(), true,
+                new Dictionary<string, string>(), ManualTargetIdempotencyModes.ReceiverKeyed),
+             new ManualTargetOperation("execute", "POST", "/execute", "{}", new Dictionary<string, string> { ["count"] = "$.count" })],
+            [], DateTime.UtcNow, "owner");
+        await new ManualTargetStore(context).AddAsync(target, CancellationToken.None);
+        var store = new ManualSetupExecutionStore(context);
+
+        var first = await store.ReserveAsync(run.Id, target.Id, "campaign:1", "setup", ManualTargetIdempotencyModes.ReceiverKeyed, CancellationToken.None);
+        context.ChangeTracker.Clear();
+        var retry = await store.ReserveAsync(run.Id, target.Id, "campaign:1", "setup", ManualTargetIdempotencyModes.ReceiverKeyed, CancellationToken.None);
+        await store.CompleteAsync(run.Id, "campaign:1", "setup", CancellationToken.None);
+        context.ChangeTracker.Clear();
+        var completed = await store.ReserveAsync(run.Id, target.Id, "campaign:1", "setup", ManualTargetIdempotencyModes.ReceiverKeyed, CancellationToken.None);
+        var unsafeFirst = await store.ReserveAsync(run.Id, target.Id, "probe:unsafe", "setup", ManualTargetIdempotencyModes.None, CancellationToken.None);
+        context.ChangeTracker.Clear();
+        var unsafeRecovery = await store.ReserveAsync(run.Id, target.Id, "probe:unsafe", "setup", ManualTargetIdempotencyModes.None, CancellationToken.None);
+
+        Assert.Equal(ManualSetupClaimDisposition.Send, first.Disposition);
+        Assert.Equal(ManualSetupClaimDisposition.Send, retry.Disposition);
+        Assert.Equal(2, retry.PhysicalRequestsReserved);
+        Assert.Equal(ManualSetupClaimDisposition.Completed, completed.Disposition);
+        Assert.Equal(ManualSetupClaimDisposition.Send, unsafeFirst.Disposition);
+        Assert.Equal(ManualSetupClaimDisposition.Ambiguous, unsafeRecovery.Disposition);
+        Assert.Equal(1, unsafeRecovery.PhysicalRequestsReserved);
+        Assert.True(await store.CanStartAsync(run.Id, 1, CancellationToken.None));
+        Assert.False(await store.CanStartAsync(run.Id, 2, CancellationToken.None));
     }
 
     private RaceHunterDbContext CreateContext() => new(

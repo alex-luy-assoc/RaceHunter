@@ -162,10 +162,13 @@ public sealed partial class TargetDestinationValidator(
             var id = operation.Id.Trim();
             var method = operation.Method.Trim().ToUpperInvariant();
             var path = operation.Path.Trim();
+            var idempotencyMode = operation.IdempotencyMode.Trim().ToLowerInvariant();
             if (!OperationId().IsMatch(id) || !ids.Add(id) || method is not ("GET" or "POST") ||
                 !path.StartsWith("/", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal) ||
                 path.Contains("://", StringComparison.Ordinal) || path.Contains('\\') || path.Contains('?') || path.Contains('#') || path.Length > 500)
                 throw new TargetSafetyException("operation_invalid", "Operations require unique stable IDs, GET/POST methods, and relative rooted paths.");
+            if (idempotencyMode is not (ManualTargetIdempotencyModes.None or ManualTargetIdempotencyModes.ReceiverKeyed))
+                throw new TargetSafetyException("idempotency_invalid", "Idempotency mode must be none or receiver-keyed.");
             if (operation.RequestTemplateJson.Length > 16 * 1024)
                 throw new TargetSafetyException("template_invalid", "Request templates are limited to 16 KiB.");
             try { using var _ = JsonDocument.Parse(operation.RequestTemplateJson); }
@@ -191,6 +194,7 @@ public sealed partial class TargetDestinationValidator(
                 Id = id,
                 Method = method,
                 Path = path,
+                IdempotencyMode = idempotencyMode,
                 ObservationPaths = new Dictionary<string, string>(operation.ObservationPaths, StringComparer.Ordinal),
                 ObservationTypes = observationTypes
             });

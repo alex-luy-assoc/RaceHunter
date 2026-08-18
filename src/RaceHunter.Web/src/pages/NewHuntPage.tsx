@@ -15,6 +15,7 @@ export function NewHuntPage() {
   const [secretReference, setSecretReference] = useState('projects/local-demo/secrets/manual-target-token/versions/latest')
   const [setupEnabled, setSetupEnabled] = useState(true), [setupMethod, setSetupMethod] = useState<Method>('POST')
   const [setupPath, setSetupPath] = useState('/manual/reset'), [setupTemplate, setSetupTemplate] = useState('{"quantity":1,"mode":"vulnerable"}')
+  const [setupIdempotency, setSetupIdempotency] = useState<'none' | 'receiver-keyed'>('receiver-keyed')
   const [operationId, setOperationId] = useState('reserve-seat'), [operationMethod, setOperationMethod] = useState<Method>('POST')
   const [operationPath, setOperationPath] = useState('/manual/orders')
   const [operationTemplate, setOperationTemplate] = useState('{"actorId":"{{actorId}}","quantity":1,"checkpoint":"{{checkpoint}}","idempotencyKey":"{{executionKey}}-{{actorId}}","replayScope":"{{executionKey}}"}')
@@ -45,7 +46,7 @@ export function NewHuntPage() {
         const observationTypes: Record<string, ObservationType> = { [metric]: observationType }
         if (invariantFamily === 'cross-observation') { observationPaths[secondMetric] = secondObservationPath; observationTypes[secondMetric] = secondObservationType }
         const operations = [
-          ...(setupEnabled ? [{ id: 'setup', method: setupMethod, path: setupPath, requestTemplateJson: setupTemplate, observationPaths: {}, observationTypes: {}, isSetup: true }] : []),
+          ...(setupEnabled ? [{ id: 'setup', method: setupMethod, path: setupPath, requestTemplateJson: setupTemplate, observationPaths: {}, observationTypes: {}, isSetup: true, idempotencyMode: setupIdempotency }] : []),
           { id: operationId, method: operationMethod, path: operationPath, requestTemplateJson: operationTemplate, observationPaths, observationTypes, isSetup: false }
         ]
         const target = await configureManualTarget({ baseUrl, allowedHosts: [authorizedHost.trim()], credentialReference: secretReference,
@@ -68,7 +69,7 @@ export function NewHuntPage() {
         <label htmlFor="authorized-port">Authorized port</label><input id="authorized-port" inputMode="numeric" value={authorizedPort} onChange={event => setAuthorizedPort(event.target.value)} />
         <label htmlFor="secret-reference">Secret Manager version reference</label><input id="secret-reference" value={secretReference} onChange={event => setSecretReference(event.target.value)} />
         <label><input type="checkbox" checked={setupEnabled} onChange={event => setSetupEnabled(event.target.checked)} /> Run a setup operation before each attempt</label>
-        {setupEnabled && <><label htmlFor="setup-method">Setup method</label><select id="setup-method" value={setupMethod} onChange={event => setSetupMethod(event.target.value as Method)}><option>POST</option><option>GET</option></select><label htmlFor="setup-path">Setup path</label><input id="setup-path" value={setupPath} onChange={event => setSetupPath(event.target.value)} /><label htmlFor="setup-template">Setup request JSON template</label><textarea id="setup-template" value={setupTemplate} onChange={event => setSetupTemplate(event.target.value)} /></>}
+        {setupEnabled && <><label htmlFor="setup-method">Setup method</label><select id="setup-method" value={setupMethod} onChange={event => setSetupMethod(event.target.value as Method)}><option>POST</option><option>GET</option></select><label htmlFor="setup-path">Setup path</label><input id="setup-path" value={setupPath} onChange={event => setSetupPath(event.target.value)} /><label htmlFor="setup-template">Setup request JSON template</label><textarea id="setup-template" value={setupTemplate} onChange={event => setSetupTemplate(event.target.value)} /><label htmlFor="setup-idempotency">Setup recovery contract</label><select id="setup-idempotency" value={setupIdempotency} onChange={event => setSetupIdempotency(event.target.value as 'none' | 'receiver-keyed')}><option value="receiver-keyed">Receiver guarantees idempotency key</option><option value="none">No automatic retry</option></select></>}
         <label htmlFor="operation-id">Operation ID</label><input id="operation-id" value={operationId} onChange={event => setOperationId(event.target.value)} />
         <label htmlFor="operation-method">Operation method</label><select id="operation-method" value={operationMethod} onChange={event => setOperationMethod(event.target.value as Method)}><option>POST</option><option>GET</option></select>
         <label htmlFor="operation-path">Operation path</label><input id="operation-path" value={operationPath} onChange={event => setOperationPath(event.target.value)} />

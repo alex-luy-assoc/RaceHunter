@@ -232,6 +232,19 @@ public sealed class PhaseFiveSecurityTests
         Assert.Equal("template_invalid", error.Code);
     }
 
+    [Fact]
+    public async Task Manual_target_rejects_an_unknown_setup_idempotency_contract()
+    {
+        var validator = Validator("api.example.test", IPAddress.Parse("8.8.8.8"));
+        var setup = new ManualTargetOperation("setup", "POST", "/reset", "{}",
+            new Dictionary<string, string>(), true, new Dictionary<string, string>(), "trust-me");
+        var request = Request() with { Operations = [setup, Operation()] };
+
+        var error = await Assert.ThrowsAsync<TargetSafetyException>(() => validator.ValidateAsync(request, CancellationToken.None));
+
+        Assert.Equal("idempotency_invalid", error.Code);
+    }
+
     private sealed class StubDnsResolver(params IPAddress[] addresses) : IDnsResolver
     {
         public Task<IPAddress[]> GetHostAddressesAsync(string host, CancellationToken cancellationToken) => Task.FromResult(addresses);

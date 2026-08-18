@@ -46,7 +46,8 @@ public sealed record ManualTargetOperationRequest(
     string RequestTemplateJson,
     IReadOnlyDictionary<string, string> ObservationPaths,
     bool IsSetup = false,
-    IReadOnlyDictionary<string, string>? ObservationTypes = null);
+    IReadOnlyDictionary<string, string>? ObservationTypes = null,
+    string IdempotencyMode = "none");
 
 public sealed record ManualTargetResponse(
     Guid Id,

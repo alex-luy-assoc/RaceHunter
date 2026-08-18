@@ -8,6 +8,7 @@ using RaceHunter.Domain.Invariants;
 using RaceHunter.Domain.Runs;
 using RaceHunter.Domain.Tracing;
 using RaceHunter.Infrastructure.Observability;
+using RaceHunter.Infrastructure.Security;
 
 namespace RaceHunter.Worker.Execution;
 
@@ -89,7 +90,11 @@ internal sealed class ReferenceCampaignAttemptExecutor(
         try
         {
             if (manualTargetId.HasValue)
+            {
                 requestsConsumed = await manualTarget.PrepareAsync(manualTargetId.Value, runId, executionKey, cancellationToken);
+                if (!await manualTarget.CanStartAsync(runId, plan.Actors.Count, cancellationToken))
+                    throw new TargetSafetyException("request_budget_exhausted", "Setup recovery consumed the remaining physical request budget.");
+            }
             var result = await scheduler.ExecuteAsync(plan, attemptBudget, async (actor, token) =>
             {
                 var targetResult = manualTargetId.HasValue

@@ -50,6 +50,26 @@ public sealed class ReferenceInventoryTargetClientTests
         Assert.NotEqual(first, second);
     }
 
+    [Fact]
+    public void Maximum_caller_replay_key_derives_a_fixed_length_receiver_safe_scope()
+    {
+        var scope = ReferenceReplayExecution.CreateExecutionScope(Guid.NewGuid(), new string('x', 160));
+
+        Assert.Equal(71, scope.Length);
+        Assert.StartsWith("replay:", scope, StringComparison.Ordinal);
+        Assert.True($"{scope}:1:setup".Length <= 160);
+    }
+
+    [Fact]
+    public void Manual_receiver_operation_key_is_fixed_length_for_long_internal_scope_and_operation()
+    {
+        var key = ManualHttpTargetClient.CreateReceiverOperationKey(
+            $"{Guid.NewGuid():N}:minimize:step:1:{new string('f', 64)}", 100, new string('s', 64));
+
+        Assert.Equal(67, key.Length);
+        Assert.StartsWith("op:", key, StringComparison.Ordinal);
+    }
+
     private sealed class StubHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>

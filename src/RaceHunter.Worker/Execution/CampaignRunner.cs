@@ -402,7 +402,7 @@ internal sealed class CampaignRunner(
         Guid targetId, CancellationToken cancellationToken)
     {
         var target = await client.GetSnapshotAsync(targetId, cancellationToken);
-        var snapshot = ManualReplaySnapshot.Serialize(target, plan.Invariant);
+        var snapshot = ManualReplaySnapshot.Serialize(run.Id, target, plan.Invariant);
         return ReplayArtifact.Create(
             DeterministicId(run.Id, "replay-artifact"), DeterministicId(run.Id, "finding"), plan.PlanVersion,
             "invariant-v1", snapshot, candidate.Strategy, candidate.Seed, candidate.Steps,

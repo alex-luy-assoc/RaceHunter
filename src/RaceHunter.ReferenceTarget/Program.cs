@@ -65,12 +65,36 @@ app.MapPost("/manual/reset", async (HttpRequest request, ResetRequest reset, Inv
 {
     if (!HasManualBearer(request, configuration)) return Results.NotFound();
     if (reset.Quantity < 0 || reset.Mode is not ("vulnerable" or "fixed")) return Results.BadRequest();
+    var operationKey = request.Headers["X-RaceHunter-Idempotency-Key"].ToString().Trim();
+    var replayScope = request.Headers["X-RaceHunter-Replay-Scope"].ToString().Trim();
+    if (operationKey.Length is 0 or > 160 || replayScope.Length > 160) return Results.BadRequest();
+    await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+    _ = await database.Inventory.FromSqlRaw("SELECT * FROM inventory_state FOR UPDATE").SingleAsync(cancellationToken);
+    var completed = await database.ResetOperations.AsNoTracking()
+        .SingleOrDefaultAsync(item => item.IdempotencyKey == operationKey, cancellationToken);
+    if (completed is not null)
+    {
+        await transaction.CommitAsync(cancellationToken);
+        return completed.Quantity == reset.Quantity && completed.Mode == reset.Mode
+            ? Results.Ok(new { successfulOrders = 0, inventoryCapacity = completed.Quantity, replayed = true })
+            : Results.Conflict();
+    }
     await database.Inventory.ExecuteUpdateAsync(setters => setters
         .SetProperty(state => state.InitialQuantity, reset.Quantity)
         .SetProperty(state => state.Available, reset.Quantity)
         .SetProperty(state => state.SuccessfulOrders, 0)
         .SetProperty(state => state.Mode, reset.Mode), cancellationToken);
-    return Results.Ok(new { successfulOrders = 0, inventoryCapacity = reset.Quantity });
+    database.ResetOperations.Add(new ResetOperationRecord
+    {
+        IdempotencyKey = operationKey,
+        ReplayScope = replayScope.Length == 0 ? null : replayScope,
+        Quantity = reset.Quantity,
+        Mode = reset.Mode,
+        CompletedAtUtc = DateTime.UtcNow
+    });
+    await database.SaveChangesAsync(cancellationToken);
+    await transaction.CommitAsync(cancellationToken);
+    return Results.Ok(new { successfulOrders = 0, inventoryCapacity = reset.Quantity, replayed = false });
 });
 app.MapPost("/manual/orders", async (HttpRequest request, OrderRequest order, OrderService service, InventoryDbContext database, ControlledCheckpoint checkpoint, IConfiguration configuration, CancellationToken cancellationToken) =>
 {

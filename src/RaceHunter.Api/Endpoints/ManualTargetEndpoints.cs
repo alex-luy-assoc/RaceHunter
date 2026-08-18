@@ -46,7 +46,7 @@ internal static class ManualTargetEndpoints
                 request.CredentialReference,
                 request.Operations.Select(operation => new ManualTargetOperation(
                     operation.Id, operation.Method, operation.Path, operation.RequestTemplateJson,
-                    operation.ObservationPaths, operation.IsSetup, operation.ObservationTypes)).ToArray(),
+                    operation.ObservationPaths, operation.IsSetup, operation.ObservationTypes, operation.IdempotencyMode)).ToArray(),
                 request.SensitiveJsonPaths,
                 AdminAuthentication.OwnerKeyId(context)), cancellationToken);
             return Results.Created($"/api/admin/targets/{target.Id}", new ManualTargetResponse(
@@ -56,7 +56,7 @@ internal static class ManualTargetEndpoints
                 target.CredentialReference,
                 target.Operations.Select(operation => new ManualTargetOperationRequest(
                     operation.Id, operation.Method, operation.Path, operation.RequestTemplateJson,
-                    operation.ObservationPaths, operation.IsSetup, operation.ObservationTypes)).ToArray(),
+                    operation.ObservationPaths, operation.IsSetup, operation.ObservationTypes, operation.IdempotencyMode)).ToArray(),
                 target.SensitiveJsonPaths.ToArray(),
                 target.CreatedAtUtc));
         }

@@ -6,6 +6,7 @@ namespace RaceHunter.Worker.Execution;
 
 internal sealed record ManualReplaySnapshot(
     string Kind,
+    Guid RunId,
     Guid TargetId,
     string BaseUrl,
     string Host,
@@ -17,9 +18,10 @@ internal sealed record ManualReplaySnapshot(
 {
     private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
 
-    public static string Serialize(ManualTargetSnapshot target, PlannedInvariant invariant) =>
+    public static string Serialize(Guid runId, ManualTargetSnapshot target, PlannedInvariant invariant) =>
         JsonSerializer.Serialize(new ManualReplaySnapshot(
             "manual-http-json",
+            runId,
             target.Id,
             target.BaseUri.AbsoluteUri,
             target.Host,

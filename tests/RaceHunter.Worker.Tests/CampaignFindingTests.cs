@@ -44,7 +44,7 @@ public sealed class CampaignFindingTests
             [new RaceHunter.Application.Hunts.ManualTargetOperation("reserve", "POST", "/reservations", "{}",
                 new Dictionary<string, string> { ["reservation-count"] = "$.count" })], [], DateTime.UtcNow);
 
-        var json = ManualReplaySnapshot.Serialize(target, invariant);
+        var json = ManualReplaySnapshot.Serialize(Guid.NewGuid(), target, invariant);
         var compiled = Assert.IsType<NumericBoundaryInvariant>(ReferenceReplayExecution.CompileManualInvariant(json));
 
         Assert.Equal("reservation-count", compiled.Metric);
@@ -67,7 +67,7 @@ public sealed class CampaignFindingTests
             "projects/demo/secrets/token/versions/latest",
             [new RaceHunter.Application.Hunts.ManualTargetOperation("reserve", "POST", "/reservations", "{}",
                 new Dictionary<string, string> { ["reservation-count"] = "$.count" })], ["$.token"], DateTime.UtcNow);
-        var snapshot = ManualReplaySnapshot.Deserialize(ManualReplaySnapshot.Serialize(target,
+        var snapshot = ManualReplaySnapshot.Deserialize(ManualReplaySnapshot.Serialize(Guid.NewGuid(), target,
             new PlannedInvariant("numeric-boundary", "reservation-count", 7)));
         var changed = target with { SensitiveJsonPaths = ["$.different-secret"] };
 

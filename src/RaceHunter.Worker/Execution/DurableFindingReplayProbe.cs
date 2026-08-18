@@ -38,8 +38,8 @@ internal sealed class DurableFindingReplayProbe(
         if (required > remaining) return new ReplayObservation(InvariantOutcome.Inconclusive, []);
         var observation = await executePhysical(probeKey, candidate, mode, cancellationToken);
         var consumed = observation.RequestsConsumed < 0 ? candidate.Steps.Count : observation.RequestsConsumed;
-        if (consumed > required)
-            throw new InvalidOperationException("The reference target consumed more unique work than its durable preflight reservation.");
+        if (consumed > remaining)
+            throw new InvalidOperationException("Physical work exceeded the durable request budget after recovery accounting.");
         remaining -= consumed;
         var parts = probeKey.Split(':');
         await checkpoints.SaveAsync(new FindingProbeCheckpoint(

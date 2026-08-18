@@ -18,10 +18,38 @@ public sealed record ManualTargetOperation(
     string RequestTemplateJson,
     IReadOnlyDictionary<string, string> ObservationPaths,
     bool IsSetup = false,
-    IReadOnlyDictionary<string, string>? ObservationTypes = null)
+    IReadOnlyDictionary<string, string>? ObservationTypes = null,
+    string IdempotencyMode = "none")
 {
     public string ObservationType(string metric) =>
         ObservationTypes is not null && ObservationTypes.TryGetValue(metric, out var type) ? type : "number";
+}
+
+public static class ManualTargetIdempotencyModes
+{
+    public const string None = "none";
+    public const string ReceiverKeyed = "receiver-keyed";
+}
+
+public enum ManualSetupClaimDisposition
+{
+    Send,
+    Completed,
+    Ambiguous,
+    BudgetExceeded
+}
+
+public sealed record ManualSetupClaim(
+    ManualSetupClaimDisposition Disposition,
+    int PhysicalRequestsReserved);
+
+public interface IManualSetupExecutionStore
+{
+    Task<ManualSetupClaim> ReserveAsync(Guid runId, Guid targetId, string executionKey, string operationId,
+        string idempotencyMode, CancellationToken cancellationToken);
+    Task CompleteAsync(Guid runId, string executionKey, string operationId, CancellationToken cancellationToken);
+    Task MarkAmbiguousAsync(Guid runId, string executionKey, string operationId, CancellationToken cancellationToken);
+    Task<bool> CanStartAsync(Guid runId, int additionalRequests, CancellationToken cancellationToken);
 }
 
 public sealed record ValidatedManualTarget(

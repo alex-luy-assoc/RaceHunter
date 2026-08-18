@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using RaceHunter.Application.Agents;
 using RaceHunter.Application.Hunts;
@@ -73,7 +75,11 @@ internal sealed class ReferenceReplayExecution(
             DateTime.UtcNow);
     }
 
-    internal static string CreateExecutionScope(Guid artifactId, string idempotencyKey) => $"{artifactId:N}:{idempotencyKey}";
+    internal static string CreateExecutionScope(Guid artifactId, string idempotencyKey)
+    {
+        var material = Encoding.UTF8.GetBytes($"racehunter:manual-replay:v1:{artifactId:N}:{idempotencyKey}");
+        return $"replay:{Convert.ToHexString(SHA256.HashData(material)).ToLowerInvariant()}";
+    }
 
     private async Task<ReplayAttempt> ExecuteManualAsync(ReplayArtifact artifact, ReplayTargetMode targetMode,
         string idempotencyKey, CancellationToken cancellationToken)
@@ -82,7 +88,9 @@ internal sealed class ReferenceReplayExecution(
         var current = await manualTarget.GetSnapshotAsync(snapshot.TargetId, cancellationToken);
         EnsureSnapshotMatches(current, snapshot);
         var scope = CreateExecutionScope(artifact.Id, idempotencyKey);
-        _ = await manualTarget.PrepareAsync(snapshot.TargetId, artifact.FindingId, scope, cancellationToken);
+        _ = await manualTarget.PrepareAsync(snapshot.TargetId, snapshot.RunId, scope, cancellationToken);
+        if (!await manualTarget.CanStartAsync(snapshot.RunId, artifact.Steps.Count, cancellationToken))
+            throw new TargetSafetyException("request_budget_exhausted", "Setup recovery consumed the remaining physical replay budget.");
         var plan = new SchedulePlan(ParseKind(artifact.Strategy), artifact.Seed,
             artifact.Steps.Select((step, index) => new ScheduledActor(step.ActorId,
                 TimeSpan.FromMilliseconds(step.OffsetMilliseconds),
@@ -90,7 +98,7 @@ internal sealed class ReferenceReplayExecution(
         var operations = artifact.Steps.GroupBy(step => step.ActorId).ToDictionary(group => group.Key, group => group.First().OperationId);
         var result = await scheduler.ExecuteAsync(plan,
             new ExperimentBudget(artifact.ActorCount, artifact.ActorCount, artifact.Steps.Count, 0, TimeSpan.FromSeconds(30), 0),
-            (actor, token) => manualTarget.ExecuteAsync(snapshot.TargetId, artifact.FindingId, actor,
+            (actor, token) => manualTarget.ExecuteAsync(snapshot.TargetId, snapshot.RunId, actor,
                 operations[actor.ActorId], scope, token), cancellationToken);
         var invariant = new InvariantEvaluatorRegistry().Evaluate(CompileManualInvariant(artifact.TargetSnapshot),
             result.Executions.SelectMany(execution => execution.TargetResult.Observations).ToArray());

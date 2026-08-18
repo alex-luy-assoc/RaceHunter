@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using RaceHunter.Application.Hunts;
@@ -12,7 +13,7 @@ using RaceHunter.Infrastructure.Security;
 namespace RaceHunter.Worker.Execution;
 
 internal sealed class ManualHttpTargetClient(IManualTargetStore targets, IManualTargetSafetyPolicy safetyPolicy,
-    SafeTargetClientFactory clients, ISecretProvider secrets)
+    SafeTargetClientFactory clients, ISecretProvider secrets, IManualSetupExecutionStore setupExecutions)
 {
     private const int MaximumResponseBytes = 1024 * 1024;
     private readonly ConcurrentDictionary<Guid, Task<ValidatedManualTarget>> validatedTargets = new();
@@ -23,11 +24,31 @@ internal sealed class ManualHttpTargetClient(IManualTargetStore targets, IManual
         var setup = target.Operations.SingleOrDefault(operation => operation.IsSetup);
         if (setup is not null)
         {
-            await SendAsync(target, setup, runId, new ScheduledActor(1, TimeSpan.Zero, null, setup.Id), executionKey, false, cancellationToken);
-            return 1;
+            var claim = await setupExecutions.ReserveAsync(runId, targetId, executionKey, setup.Id,
+                setup.IdempotencyMode, cancellationToken);
+            if (claim.Disposition == ManualSetupClaimDisposition.Completed)
+                return claim.PhysicalRequestsReserved;
+            if (claim.Disposition == ManualSetupClaimDisposition.Ambiguous)
+                throw new TargetSafetyException("manual_recovery_required", "The setup outcome is ambiguous and requires an authorized manual recovery decision.");
+            if (claim.Disposition == ManualSetupClaimDisposition.BudgetExceeded)
+                throw new TargetSafetyException("request_budget_exhausted", "No physical request budget remains for setup recovery.");
+            try
+            {
+                await SendAsync(target, setup, runId, new ScheduledActor(1, TimeSpan.Zero, null, setup.Id), executionKey, false, cancellationToken);
+                await setupExecutions.CompleteAsync(runId, executionKey, setup.Id, cancellationToken);
+                return claim.PhysicalRequestsReserved;
+            }
+            catch when (setup.IdempotencyMode != ManualTargetIdempotencyModes.ReceiverKeyed)
+            {
+                await setupExecutions.MarkAmbiguousAsync(runId, executionKey, setup.Id, CancellationToken.None);
+                throw new TargetSafetyException("manual_recovery_required", "The non-idempotent setup outcome is ambiguous and requires an authorized manual recovery decision.");
+            }
         }
         return 0;
     }
+
+    public Task<bool> CanStartAsync(Guid runId, int additionalRequests, CancellationToken cancellationToken) =>
+        setupExecutions.CanStartAsync(runId, additionalRequests, cancellationToken);
 
     public async Task<TargetCallResult> ExecuteAsync(Guid targetId, Guid runId, ScheduledActor actor,
         string operationId, string executionKey, CancellationToken cancellationToken)
@@ -70,7 +91,8 @@ internal sealed class ManualHttpTargetClient(IManualTargetStore targets, IManual
             if (operation.Method != "GET")
                 request.Content = new StringContent(Render(operation.RequestTemplateJson, runId, actor, executionKey), Encoding.UTF8, "application/json");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
-            request.Headers.TryAddWithoutValidation("X-RaceHunter-Idempotency-Key", $"{executionKey}:{actor.ActorId}:{operation.Id}");
+            request.Headers.TryAddWithoutValidation("X-RaceHunter-Idempotency-Key",
+                CreateReceiverOperationKey(executionKey, actor.ActorId, operation.Id));
             request.Headers.TryAddWithoutValidation("X-RaceHunter-Replay-Scope", executionKey);
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             var bytes = await ReadBoundedAsync(response.Content, cancellationToken);
@@ -142,6 +164,12 @@ internal sealed class ManualHttpTargetClient(IManualTargetStore targets, IManual
             .Replace("{{runId}}", Escape(runId.ToString("N")), StringComparison.Ordinal)
             .Replace("{{executionKey}}", Escape(executionKey), StringComparison.Ordinal)
             .Replace("{{checkpoint}}", Escape(actor.CheckpointOrder.HasValue ? $"racehunter:{executionKey}" : string.Empty), StringComparison.Ordinal);
+    }
+
+    internal static string CreateReceiverOperationKey(string executionKey, int actorId, string operationId)
+    {
+        var material = Encoding.UTF8.GetBytes($"racehunter:manual-operation:v1:{executionKey}:{actorId}:{operationId}");
+        return $"op:{Convert.ToHexString(SHA256.HashData(material)).ToLowerInvariant()}";
     }
 
     private static bool TryRead(JsonElement root, string path, out JsonElement value)

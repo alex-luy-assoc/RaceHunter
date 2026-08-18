@@ -26,6 +26,7 @@ internal sealed class RaceHunterDbContext(DbContextOptions<RaceHunterDbContext> 
     internal DbSet<ReplayExecutionClaimRecord> ReplayExecutionClaims => Set<ReplayExecutionClaimRecord>();
     internal DbSet<FindingProbeCheckpointRecord> FindingProbeCheckpoints => Set<FindingProbeCheckpointRecord>();
     internal DbSet<SecurityAuditEventRecord> SecurityAuditEvents => Set<SecurityAuditEventRecord>();
+    internal DbSet<ManualSetupExecutionRecord> ManualSetupExecutions => Set<ManualSetupExecutionRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,7 +50,21 @@ internal sealed class RaceHunterDbContext(DbContextOptions<RaceHunterDbContext> 
         modelBuilder.ApplyConfiguration(new ReplayExecutionClaimConfiguration());
         modelBuilder.ApplyConfiguration(new FindingProbeCheckpointConfiguration());
         modelBuilder.ApplyConfiguration(new SecurityAuditEventConfiguration());
+        modelBuilder.ApplyConfiguration(new ManualSetupExecutionConfiguration());
     }
+}
+
+internal sealed class ManualSetupExecutionRecord
+{
+    public Guid RunId { get; set; }
+    public Guid TargetId { get; set; }
+    public required string ExecutionKey { get; set; }
+    public required string OperationId { get; set; }
+    public required string IdempotencyMode { get; set; }
+    public required string Status { get; set; }
+    public int PhysicalRequestsReserved { get; set; }
+    public DateTime ReservedAtUtc { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
 }
 
 internal sealed class SecurityAuditEventRecord

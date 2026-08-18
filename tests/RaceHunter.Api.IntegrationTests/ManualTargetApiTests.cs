@@ -74,6 +74,7 @@ public sealed class ManualTargetApiTests(ApiDatabaseFixture fixture) : IClassFix
         Assert.Equal("8.8.8.8", created.Host);
         Assert.StartsWith("projects/", created.CredentialReference, StringComparison.Ordinal);
         Assert.Equal("place-order", created.Operations.Single(operation => !operation.IsSetup).Id);
+        Assert.Equal(ManualTargetIdempotencyModes.ReceiverKeyed, created.Operations.Single(operation => operation.IsSetup).IdempotencyMode);
         Assert.Equal("$.successfulOrders", created.Operations.Single(operation => !operation.IsSetup).ObservationPaths["successful-orders"]);
         Assert.DoesNotContain("local-admin", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
@@ -224,7 +225,8 @@ public sealed class ManualTargetApiTests(ApiDatabaseFixture fixture) : IClassFix
         true,
         "projects/demo-project/secrets/orders-token/versions/latest",
         [
-            new ManualTargetOperationRequest("reset", "POST", "/reset", "{\"quantity\":1}", new Dictionary<string, string>(), true),
+            new ManualTargetOperationRequest("reset", "POST", "/reset", "{\"quantity\":1}", new Dictionary<string, string>(), true,
+                new Dictionary<string, string>(), ManualTargetIdempotencyModes.ReceiverKeyed),
             new ManualTargetOperationRequest("place-order", "POST", "/orders",
                 "{\"actorId\":\"{{actorId}}\",\"runId\":\"{{runId}}\"}",
                 new Dictionary<string, string> { ["successful-orders"] = "$.successfulOrders", ["inventory-capacity"] = "$.inventoryCapacity" })

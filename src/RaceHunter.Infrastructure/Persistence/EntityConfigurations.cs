@@ -382,3 +382,23 @@ internal sealed class FindingProbeCheckpointConfiguration : IEntityTypeConfigura
         builder.HasOne<RunRecord>().WithMany().HasForeignKey(item => item.RunId).OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+internal sealed class ManualSetupExecutionConfiguration : IEntityTypeConfiguration<ManualSetupExecutionRecord>
+{
+    public void Configure(EntityTypeBuilder<ManualSetupExecutionRecord> builder)
+    {
+        builder.ToTable("manual_setup_executions");
+        builder.HasKey(item => new { item.RunId, item.ExecutionKey, item.OperationId });
+        builder.Property(item => item.RunId).HasColumnName("run_id");
+        builder.Property(item => item.TargetId).HasColumnName("target_id");
+        builder.Property(item => item.ExecutionKey).HasColumnName("execution_key").HasMaxLength(160).IsRequired();
+        builder.Property(item => item.OperationId).HasColumnName("operation_id").HasMaxLength(64).IsRequired();
+        builder.Property(item => item.IdempotencyMode).HasColumnName("idempotency_mode").HasMaxLength(32).IsRequired();
+        builder.Property(item => item.Status).HasColumnName("status").HasMaxLength(24).IsRequired();
+        builder.Property(item => item.PhysicalRequestsReserved).HasColumnName("physical_requests_reserved");
+        builder.Property(item => item.ReservedAtUtc).HasColumnName("reserved_at_utc").HasColumnType("timestamp with time zone");
+        builder.Property(item => item.CompletedAtUtc).HasColumnName("completed_at_utc").HasColumnType("timestamp with time zone");
+        builder.HasOne<RunRecord>().WithMany().HasForeignKey(item => item.RunId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<TargetSystemRecord>().WithMany().HasForeignKey(item => item.TargetId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
