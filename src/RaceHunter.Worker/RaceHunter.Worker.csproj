@@ -4,5 +4,6 @@
     <ProjectReference Include="..\RaceHunter.Contracts\RaceHunter.Contracts.csproj" />
     <ProjectReference Include="..\RaceHunter.Concurrency\RaceHunter.Concurrency.csproj" />
     <ProjectReference Include="..\RaceHunter.Infrastructure\RaceHunter.Infrastructure.csproj" />
+    <ProjectReference Include="..\RaceHunter.Gemini\RaceHunter.Gemini.csproj" />
   </ItemGroup>
 </Project>

@@ -2,4 +2,10 @@
   <ItemGroup>
     <ProjectReference Include="..\RaceHunter.Application\RaceHunter.Application.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Google.GenAI" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Prompts\*.txt" />
+  </ItemGroup>
 </Project>

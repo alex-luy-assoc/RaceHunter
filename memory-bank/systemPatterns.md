@@ -48,6 +48,7 @@
 - Use leases or heartbeats for active ownership, persist attempt boundaries/checkpoints, and recover interrupted work explicitly.
 - Retry only classified transient failures with bounded exponential backoff and jitter. Never automatically retry unsafe target operations without an idempotency mechanism.
 - Dead-letter poison messages and surface them through operations state.
+- Persist an attempt checkpoint immediately after deterministic target work and before asking the model. Persist the validated agent decision, run event, and next work checkpoint in one database transaction. Lease recovery may reuse a completed attempt or resume after a decision, but must not spend target or model budgets twice after a durable boundary.
 
 ## Agent Loop Pattern
 
@@ -63,6 +64,8 @@ authorize and validate
 ```
 
 Gemini can select only from an allowlisted action vocabulary. Every iteration records evidence inputs, chosen action, rationale summary, model and schema versions, usage, timestamps, and outcome. Server-side budgets and safety checks override model choices.
+
+Planning and strategy adapters count every provider invocation, including constrained repair calls. A zero remaining model budget prevents provider access; invalid or repaired output cannot bypass operation, invariant, strategy, actor, request, timing, iteration, or duration limits.
 
 ## Error and Outcome Taxonomy
 

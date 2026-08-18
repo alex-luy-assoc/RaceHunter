@@ -33,6 +33,26 @@ services:
     volumes:
       - target-data:/var/lib/postgresql/data
 
+  pubsub:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators@sha256:25300472f1fa63b4df0e0c3a5dd67bdc6774b39f6dd440605e520a6d04ae0f26
+    command:
+      - /bin/bash
+      - -c
+      - |
+        gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=racehunter-local &
+        until curl --silent --fail http://127.0.0.1:8085/v1/projects/racehunter-local/topics >/dev/null; do sleep 1; done
+        curl --silent --fail --request PUT http://127.0.0.1:8085/v1/projects/racehunter-local/topics/racehunter-work
+        curl --silent --fail --request PUT http://127.0.0.1:8085/v1/projects/racehunter-local/topics/racehunter-dead-letter
+        curl --silent --fail --request PUT --header 'Content-Type: application/json' --data '{"topic":"projects/racehunter-local/topics/racehunter-work","pushConfig":{"pushEndpoint":"http://worker:8080/internal/pubsub/push"},"ackDeadlineSeconds":30}' http://127.0.0.1:8085/v1/projects/racehunter-local/subscriptions/racehunter-worker
+        wait
+    ports:
+      - "8085:8085"
+    healthcheck:
+      test: ["CMD", "curl", "--silent", "--fail", "http://127.0.0.1:8085/v1/projects/racehunter-local/topics"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
   api:
     build:
       context: .
@@ -40,6 +60,11 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__RaceHunter: Host=postgres;Port=5432;Database=racehunter;Username=racehunter;Password=racehunter_local
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+      PubSub__ProjectId: racehunter-local
+      PubSub__TopicId: racehunter-work
+      PubSub__DeadLetterTopicId: racehunter-dead-letter
+      PubSub__UseEmulator: "true"
     ports:
       - "8080:8080"
     healthcheck:
@@ -51,6 +76,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      pubsub:
+        condition: service_healthy
 
   worker:
     build:
@@ -60,6 +87,12 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__RaceHunter: Host=postgres;Port=5432;Database=racehunter;Username=racehunter;Password=racehunter_local
       ReferenceTarget__BaseUrl: http://reference-target:8080
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+      PubSub__ProjectId: racehunter-local
+      PubSub__TopicId: racehunter-work
+      PubSub__DeadLetterTopicId: racehunter-dead-letter
+      PubSub__UseEmulator: "true"
+      PubSub__RequireAuthentication: "false"
     ports:
       - "8081:8080"
     healthcheck:
@@ -72,6 +105,8 @@ services:
       postgres:
         condition: service_healthy
       reference-target:
+        condition: service_healthy
+      pubsub:
         condition: service_healthy
 
   reference-target:

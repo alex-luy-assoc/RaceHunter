@@ -1,4 +1,14 @@
+import { NewHuntPage } from './pages/NewHuntPage'
+import { PlanReviewPage } from './pages/PlanReviewPage'
+import { LiveCampaignPage } from './pages/LiveCampaignPage'
+
 export function App() {
+  const path = window.location.pathname
+  if (path === '/hunts/new') return <NewHuntPage />
+  const plan = path.match(/^\/hunts\/([0-9a-f-]+)\/plan$/i)
+  if (plan) return <PlanReviewPage huntId={plan[1]} />
+  const run = path.match(/^\/runs\/([0-9a-f-]+)$/i)
+  if (run) return <LiveCampaignPage runId={run[1]} />
   return (
     <main>
       <header>

@@ -11,10 +11,13 @@
     <Project Path="src/RaceHunter.Worker/RaceHunter.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/RaceHunter.Api.IntegrationTests/RaceHunter.Api.IntegrationTests.csproj" />
+    <Project Path="tests/RaceHunter.Application.Tests/RaceHunter.Application.Tests.csproj" />
     <Project Path="tests/RaceHunter.Architecture.Tests/RaceHunter.Architecture.Tests.csproj" />
     <Project Path="tests/RaceHunter.Domain.Tests/RaceHunter.Domain.Tests.csproj" />
     <Project Path="tests/RaceHunter.Concurrency.Tests/RaceHunter.Concurrency.Tests.csproj" />
     <Project Path="tests/RaceHunter.Infrastructure.IntegrationTests/RaceHunter.Infrastructure.IntegrationTests.csproj" />
+    <Project Path="tests/RaceHunter.Gemini.Tests/RaceHunter.Gemini.Tests.csproj" />
     <Project Path="tests/RaceHunter.ReferenceTarget.Tests/RaceHunter.ReferenceTarget.Tests.csproj" />
   </Folder>
 </Solution>

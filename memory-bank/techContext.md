@@ -115,14 +115,25 @@ Verified Phase 1 commands:
 
 The main and reference-target EF Core migrations apply automatically at host startup. Terraform commands remain unverified because Terraform is not installed, and Google Cloud apply/smoke remains approval-gated.
 
+Verified Phase 3 capabilities and commands:
+
+- `Google.GenAI` uses its Vertex AI client mode with `gemini-3.5-flash`; planning and strategy calls require versioned JSON schemas, one bounded repair, sanitized failures, and explicit model-call accounting.
+- The API transactionally records plan/run intent in an outbox; Pub/Sub push work uses a versioned envelope, a database inbox, renewable leases, persisted attempt/decision checkpoints, classified retry delay, and durable dead-letter outcomes.
+- Run-event JSON pagination and `text/event-stream` share the PostgreSQL cursor. The React client stores the last acknowledged event ID and reconnects after refresh without treating the browser as execution state.
+- `dotnet test RaceHunter.slnx -c Release --no-restore` — 84 tests passed, including 25 focused Phase 3 tests.
+- `npm run lint --prefix src/RaceHunter.Web` and `npm run build --prefix src/RaceHunter.Web`.
+- `docker compose config --quiet`, three image builds, and a fresh-volume Pub/Sub-emulator plan/approve/run smoke journey.
+
+The live Vertex invocation and deployed Pub/Sub/Cloud Run smoke remain approval-gated. Ordinary tests and local smoke use deterministic model fakes and the Pub/Sub emulator and require no Google credentials.
+
 ## Open Technical Decisions
 
 Choose the smallest option that preserves the golden-path demo and approved boundaries:
 
-1. Standard Vertex AI endpoint supported by `Google.GenAI` versus an Enterprise Agent Platform endpoint.
-2. Pub/Sub push delivery to the Cloud Run worker versus another supported consumption pattern.
-3. Server-Sent Events versus SignalR for progress.
-4. Web assets hosted by the API versus a separate supported host.
+1. **Resolved:** standard Vertex AI endpoint through `Google.GenAI`; no Enterprise Agent Platform dependency in the MVP.
+2. **Resolved:** authenticated Pub/Sub push delivery to the private Cloud Run worker, with emulator mode locally.
+3. **Resolved:** Server-Sent Events with a durable PostgreSQL cursor and reconnect support.
+4. **Resolved:** React assets are hosted by the public API image.
 5. Low-friction authentication for the hosted judging demo.
 6. Exact reference-target observation JSON paths.
 7. Minimum replay success rate for a reproducible finding.

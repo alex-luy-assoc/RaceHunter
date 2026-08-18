@@ -10,8 +10,19 @@ main { max-width: 72rem; margin: 0 auto; padding: 5rem clamp(1.25rem, 5vw, 5rem)
 header { max-width: 52rem; }
 .eyebrow { color: #55e6a5; letter-spacing: .16em; font-size: .75rem; font-weight: 700; }
 h1 { margin: .5rem 0; font-size: clamp(3.5rem, 12vw, 8rem); line-height: .9; letter-spacing: -.06em; }
+.page-title { font-size: clamp(2.5rem, 8vw, 5rem); }
 .lede { color: #b3c8c0; font-size: clamp(1.15rem, 3vw, 1.8rem); line-height: 1.45; }
 section { margin-top: 4rem; padding: 2rem; border: 1px solid #244139; border-radius: 1rem; background: #0d211b; }
 section p { color: #b3c8c0; max-width: 48rem; line-height: 1.6; }
 a { display: inline-block; margin-top: 1rem; padding: .85rem 1.2rem; border-radius: .5rem; color: #071310; background: #55e6a5; font-weight: 700; text-decoration: none; }
 a:focus-visible { outline: 3px solid white; outline-offset: 3px; }
+label { display: block; margin-bottom: .65rem; font-weight: 700; }
+textarea { box-sizing: border-box; width: 100%; padding: 1rem; color: #e9f6f1; background: #071310; border: 1px solid #45665c; border-radius: .5rem; font: inherit; }
+.budgets { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: 1rem; }
+.budgets div { padding: .75rem; background: #071310; border-radius: .5rem; }
+.budgets dt { color: #86a59a; font-size: .8rem; }
+.budgets dd { margin: .25rem 0 0; font-size: 1.4rem; font-weight: 700; }
+button { padding: .85rem 1.2rem; border: 0; border-radius: .5rem; color: #071310; background: #55e6a5; font: inherit; font-weight: 700; cursor: pointer; }
+button:disabled { cursor: wait; opacity: .6; }
+button:focus-visible, textarea:focus-visible { outline: 3px solid white; outline-offset: 3px; }
+li { margin: .75rem 0; color: #b3c8c0; }

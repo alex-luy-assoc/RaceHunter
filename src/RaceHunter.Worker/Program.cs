@@ -1,4 +1,7 @@
 using RaceHunter.Application.Abstractions;
+using RaceHunter.Application.Agents;
+using RaceHunter.Application.Hunts;
+using RaceHunter.Application.Messaging;
 using RaceHunter.Concurrency.Execution;
 using RaceHunter.Concurrency.Invariants;
 using RaceHunter.Concurrency.Scheduling;
@@ -6,7 +9,10 @@ using RaceHunter.Contracts;
 using RaceHunter.Domain.Budgets;
 using RaceHunter.Domain.Common;
 using RaceHunter.Domain.Invariants;
+using RaceHunter.Gemini;
+using RaceHunter.Infrastructure.Messaging;
 using RaceHunter.Infrastructure.Persistence;
+using RaceHunter.Worker.Endpoints;
 using RaceHunter.Worker.Execution;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,6 +28,40 @@ builder.Services.AddScoped<ManualHuntExecutor>(provider => new ManualHuntExecuto
     provider.GetRequiredService<IRunCancellationProbe>(),
     provider.GetRequiredService<ITraceStore>(),
     provider.GetRequiredService<IRunAttemptStore>()));
+var geminiProject = builder.Configuration["Gemini:ProjectId"];
+if (!string.IsNullOrWhiteSpace(geminiProject))
+{
+    builder.Services.AddSingleton<IStructuredModelClient>(_ => new GoogleGenAiModelClient(
+        geminiProject,
+        builder.Configuration["Gemini:Location"] ?? "global"));
+}
+else if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddSingleton<IStructuredModelClient, DevelopmentModelClient>();
+}
+else
+{
+    throw new InvalidOperationException("Gemini:ProjectId is required outside Development; the deterministic fake cannot run production work.");
+}
+builder.Services.AddScoped<IScenarioPlanner, ScenarioPlanner>();
+builder.Services.AddScoped<IExperimentStrategist, ExperimentStrategist>();
+var pubSubProject = builder.Configuration["PubSub:ProjectId"];
+if (!string.IsNullOrWhiteSpace(pubSubProject))
+{
+    builder.Services.AddPubSubWorkPublisher(
+        pubSubProject,
+        builder.Configuration["PubSub:TopicId"] ?? "racehunter-work",
+        builder.Configuration["PubSub:DeadLetterTopicId"] ?? "racehunter-dead-letter",
+        builder.Configuration.GetValue("PubSub:UseEmulator", false));
+}
+else
+{
+    builder.Services.AddSingleton<IWorkPublisher, UnavailableWorkPublisher>();
+}
+builder.Services.AddScoped<PlanWorkHandler>();
+builder.Services.AddScoped<ReferenceCampaignAttemptExecutor>();
+builder.Services.AddScoped<CampaignRunner>();
+builder.Services.AddScoped<WorkDispatcher>();
 builder.Services.AddHttpClient<ReferenceInventoryTargetClient>((services, client) =>
 {
     var baseUrl = services.GetRequiredService<IConfiguration>()["ReferenceTarget:BaseUrl"]
@@ -33,6 +73,7 @@ builder.Services.AddHealthChecks();
 var app = builder.Build();
 await app.Services.ApplyRaceHunterMigrationsAsync();
 app.MapHealthChecks("/healthz");
+app.MapPubSubPushEndpoint();
 app.MapPost("/internal/manual-hunts", async (
     ManualInventoryHuntRequest input,
     ManualHuntExecutor executor,

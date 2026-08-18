@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using RaceHunter.Application.Abstractions;
+using RaceHunter.Application.Hunts;
+using RaceHunter.Application.Messaging;
 using RaceHunter.Application.Projects;
 using RaceHunter.Application.Runs;
 
@@ -13,6 +15,13 @@ public static class PersistenceRegistration
         services.AddPooledDbContextFactory<RaceHunterDbContext>(options => options.UseNpgsql(connectionString));
         services.AddScoped(provider => provider.GetRequiredService<IDbContextFactory<RaceHunterDbContext>>().CreateDbContext());
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<HuntWorkflowStore>();
+        services.AddScoped<IHuntStore>(provider => provider.GetRequiredService<HuntWorkflowStore>());
+        services.AddScoped<IHuntWorkflowStore>(provider => provider.GetRequiredService<HuntWorkflowStore>());
+        services.AddScoped<IOutboxStore>(provider => provider.GetRequiredService<HuntWorkflowStore>());
+        services.AddScoped<IAgentIterationStore>(provider => provider.GetRequiredService<HuntWorkflowStore>());
+        services.AddScoped<IWorkInbox, WorkInboxStore>();
+        services.AddScoped<IAgentDecisionCheckpointStore, AgentDecisionCheckpointStore>();
         services.AddScoped<RunStore>();
         services.AddScoped<IRunStore>(provider => provider.GetRequiredService<RunStore>());
         services.AddScoped<ITraceStore>(provider => provider.GetRequiredService<RunStore>());
@@ -22,6 +31,9 @@ public static class PersistenceRegistration
         services.AddScoped<ProjectService>();
         services.AddScoped<GetRun>();
         services.AddScoped<CancelRun>();
+        services.AddScoped<CreateHunt>();
+        services.AddScoped<GeneratePlan>();
+        services.AddScoped<ApproveAndRun>();
         return services;
     }
 

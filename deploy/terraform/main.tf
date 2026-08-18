@@ -203,6 +203,9 @@ resource "google_cloud_run_v2_service" "api" {
           }
         }
       }
+      env { name = "PubSub__ProjectId" value = var.project_id }
+      env { name = "PubSub__TopicId" value = google_pubsub_topic.work.name }
+      env { name = "PubSub__DeadLetterTopicId" value = google_pubsub_topic.dead_letter.name }
       volume_mounts { name = "cloudsql" mount_path = "/cloudsql" }
       startup_probe { http_get { path = "/healthz" } }
     }
@@ -246,6 +249,13 @@ resource "google_cloud_run_v2_service" "worker" {
           }
         }
       }
+      env { name = "ReferenceTarget__BaseUrl" value = google_cloud_run_v2_service.reference_target.uri }
+      env { name = "Gemini__ProjectId" value = var.project_id }
+      env { name = "Gemini__Location" value = "global" }
+      env { name = "PubSub__ProjectId" value = var.project_id }
+      env { name = "PubSub__TopicId" value = google_pubsub_topic.work.name }
+      env { name = "PubSub__DeadLetterTopicId" value = google_pubsub_topic.dead_letter.name }
+      env { name = "PubSub__RequireAuthentication" value = "true" }
       volume_mounts { name = "cloudsql" mount_path = "/cloudsql" }
       startup_probe { http_get { path = "/healthz" } }
     }
@@ -345,8 +355,12 @@ resource "google_pubsub_subscription" "worker" {
   topic = google_pubsub_topic.work.name
   ack_deadline_seconds = 120
   push_config {
-    push_endpoint = "${google_cloud_run_v2_service.worker.uri}/pubsub"
+    push_endpoint = "${google_cloud_run_v2_service.worker.uri}/internal/pubsub/push"
     oidc_token { service_account_email = google_service_account.pubsub_push.email }
+  }
+  retry_policy {
+    minimum_backoff = "1s"
+    maximum_backoff = "30s"
   }
   dead_letter_policy {
     dead_letter_topic     = google_pubsub_topic.dead_letter.id
@@ -357,6 +371,24 @@ resource "google_pubsub_subscription" "worker" {
 resource "google_pubsub_topic" "dead_letter" {
   name       = "racehunter-work-dead-letter"
   depends_on = [google_project_service.required]
+}
+
+resource "google_pubsub_topic_iam_member" "worker_dead_letter_publisher" {
+  topic  = google_pubsub_topic.dead_letter.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:${google_service_account.worker.email}"
+}
+
+resource "google_pubsub_topic_iam_member" "pubsub_service_dead_letter_publisher" {
+  topic  = google_pubsub_topic.dead_letter.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+}
+
+resource "google_pubsub_subscription_iam_member" "pubsub_service_forward_subscriber" {
+  subscription = google_pubsub_subscription.worker.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
 }
 
 resource "google_billing_budget" "staging" {

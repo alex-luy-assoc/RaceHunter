@@ -11,6 +11,12 @@ internal sealed class RaceHunterDbContext(DbContextOptions<RaceHunterDbContext> 
     internal DbSet<RunEventRecord> RunEvents => Set<RunEventRecord>();
     internal DbSet<RunAttemptRecord> RunAttempts => Set<RunAttemptRecord>();
     internal DbSet<TraceEventRecord> TraceEvents => Set<TraceEventRecord>();
+    internal DbSet<HuntRecord> Hunts => Set<HuntRecord>();
+    internal DbSet<HuntEventRecord> HuntEvents => Set<HuntEventRecord>();
+    internal DbSet<OutboxRecord> OutboxMessages => Set<OutboxRecord>();
+    internal DbSet<WorkInboxRecord> WorkInbox => Set<WorkInboxRecord>();
+    internal DbSet<DeadLetterRecord> DeadLetters => Set<DeadLetterRecord>();
+    internal DbSet<AgentIterationPersistenceRecord> AgentIterations => Set<AgentIterationPersistenceRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -19,6 +25,12 @@ internal sealed class RaceHunterDbContext(DbContextOptions<RaceHunterDbContext> 
         modelBuilder.ApplyConfiguration(new RunEventConfiguration());
         modelBuilder.ApplyConfiguration(new RunAttemptConfiguration());
         modelBuilder.ApplyConfiguration(new TraceEventConfiguration());
+        modelBuilder.ApplyConfiguration(new HuntConfiguration());
+        modelBuilder.ApplyConfiguration(new HuntEventConfiguration());
+        modelBuilder.ApplyConfiguration(new OutboxConfiguration());
+        modelBuilder.ApplyConfiguration(new WorkInboxConfiguration());
+        modelBuilder.ApplyConfiguration(new DeadLetterConfiguration());
+        modelBuilder.ApplyConfiguration(new AgentIterationConfiguration());
     }
 }
 
@@ -76,5 +88,92 @@ internal sealed class TraceEventRecord
     public required string StepId { get; set; }
     public required string Kind { get; set; }
     public required string RequestId { get; set; }
+    public DateTime OccurredAtUtc { get; set; }
+}
+
+internal sealed class HuntRecord
+{
+    public Guid Id { get; set; }
+    public required string Objective { get; set; }
+    public required string Status { get; set; }
+    public int MaxActors { get; set; }
+    public int MaxConcurrentActors { get; set; }
+    public int MaxRequests { get; set; }
+    public int MaxModelCalls { get; set; }
+    public long MaxDurationMilliseconds { get; set; }
+    public int MaxRetries { get; set; }
+    public string? PlanVersion { get; set; }
+    public string? PlanJson { get; set; }
+    public string? ApprovedPlanVersion { get; set; }
+    public string? ApprovalKey { get; set; }
+    public Guid? RunId { get; set; }
+    public string? FailureOutcome { get; set; }
+    public string? FailureDiagnostic { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public List<HuntEventRecord> Events { get; set; } = [];
+}
+
+internal sealed class HuntEventRecord
+{
+    public Guid HuntId { get; set; }
+    public long Cursor { get; set; }
+    public required string Kind { get; set; }
+    public required string Message { get; set; }
+    public DateTime OccurredAtUtc { get; set; }
+    public HuntRecord Hunt { get; set; } = null!;
+}
+
+internal sealed class OutboxRecord
+{
+    public Guid Id { get; set; }
+    public required string Version { get; set; }
+    public Guid WorkId { get; set; }
+    public required string Kind { get; set; }
+    public Guid SubjectId { get; set; }
+    public required string CorrelationId { get; set; }
+    public DateTime WorkCreatedAtUtc { get; set; }
+    public int PublishAttempts { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime? PublishedAtUtc { get; set; }
+}
+
+internal sealed class WorkInboxRecord
+{
+    public Guid WorkId { get; set; }
+    public required string MessageId { get; set; }
+    public required string Status { get; set; }
+    public int DeliveryAttempt { get; set; }
+    public string? LeaseOwner { get; set; }
+    public DateTime? LeaseExpiresAtUtc { get; set; }
+    public string? CheckpointBoundary { get; set; }
+    public int? CheckpointIteration { get; set; }
+    public string? CheckpointStateJson { get; set; }
+    public DateTime? CheckpointAtUtc { get; set; }
+    public string? FailureCategory { get; set; }
+    public string? FailureDiagnostic { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+}
+
+internal sealed class DeadLetterRecord
+{
+    public Guid Id { get; set; }
+    public Guid WorkId { get; set; }
+    public required string Category { get; set; }
+    public required string Diagnostic { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+}
+
+internal sealed class AgentIterationPersistenceRecord
+{
+    public Guid Id { get; set; }
+    public Guid RunId { get; set; }
+    public int Iteration { get; set; }
+    public required string EvidenceSummary { get; set; }
+    public required string Action { get; set; }
+    public required string RationaleSummary { get; set; }
+    public required string ModelId { get; set; }
+    public required string SchemaVersion { get; set; }
+    public required string ModelInvocationId { get; set; }
     public DateTime OccurredAtUtc { get; set; }
 }

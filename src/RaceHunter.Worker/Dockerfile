@@ -7,7 +7,7 @@ RUN dotnet publish src/RaceHunter.Worker/RaceHunter.Worker.csproj -c Release -o 
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine@sha256:c4b29bf368004ad9076c1ab9bc91fb373561e3905b4345637e14e8b8c57e3be8 AS final
 WORKDIR /app
-RUN addgroup -S racehunter && adduser -S racehunter -G racehunter
+RUN apk add --no-cache krb5-libs && addgroup -S racehunter && adduser -S racehunter -G racehunter
 COPY --from=build --chown=racehunter:racehunter /app/publish/ ./
 USER racehunter
 ENV ASPNETCORE_URLS=http://0.0.0.0:8080

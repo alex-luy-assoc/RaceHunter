@@ -1,9 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\RaceHunter.Application\RaceHunter.Application.csproj" />
+    <ProjectReference Include="..\RaceHunter.Contracts\RaceHunter.Contracts.csproj" />
     <ProjectReference Include="..\RaceHunter.Domain\RaceHunter.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Google.Cloud.PubSub.V1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
