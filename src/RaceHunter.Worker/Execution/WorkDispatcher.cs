@@ -13,30 +13,46 @@ internal enum WorkDispatchOutcome
 internal sealed class WorkDispatcher(
     IWorkInbox inbox,
     IWorkPublisher publisher,
-    PlanWorkHandler planHandler,
-    CampaignRunner campaignRunner,
+    IPlanWorkHandler planHandler,
+    ICampaignWorkHandler campaignRunner,
+    IWorkSubjectStore subjects,
     IConfiguration configuration,
     IServiceScopeFactory scopeFactory)
 {
     private readonly string owner = $"{Environment.MachineName}:{Guid.NewGuid():N}";
     private readonly TimeSpan leaseDuration = TimeSpan.FromSeconds(configuration.GetValue("Work:LeaseSeconds", 30));
-    private readonly int maxRetries = configuration.GetValue("Work:MaxRetries", 2);
+    private readonly TimeSpan heartbeatInterval = TimeSpan.FromMilliseconds(configuration.GetValue(
+        "Work:HeartbeatIntervalMilliseconds",
+        (int)Math.Max(1000, TimeSpan.FromSeconds(configuration.GetValue("Work:LeaseSeconds", 30)).TotalMilliseconds / 3)));
 
     public async Task<WorkDispatchOutcome> DispatchAsync(WorkMessage message, string messageId, CancellationToken cancellationToken)
     {
         var acquired = await inbox.TryAcquireAsync(message.WorkId, messageId, owner, DateTime.UtcNow, leaseDuration, cancellationToken);
-        if (acquired.Outcome is WorkAcquireOutcome.Duplicate or WorkAcquireOutcome.Busy) return WorkDispatchOutcome.Acknowledged;
-        if (acquired.Outcome == WorkAcquireOutcome.RetryLater) return WorkDispatchOutcome.Retry;
+        if (acquired.Outcome == WorkAcquireOutcome.Duplicate) return WorkDispatchOutcome.Acknowledged;
+        if (acquired.Outcome == WorkAcquireOutcome.DeadLettered)
+        {
+            var kind = Enum.TryParse<WorkKind>(message.Kind, out var parsed) ? parsed : WorkKind.Unknown;
+            var failure = acquired.Failure ?? new WorkFailure(WorkFailureCategory.Poison, false, true, "work was dead-lettered");
+            await subjects.MarkDeadLetteredAsync(kind, message.SubjectId, failure, DateTime.UtcNow, cancellationToken);
+            await publisher.PublishDeadLetterAsync(ToDispatch(message), failure, cancellationToken);
+            return WorkDispatchOutcome.Acknowledged;
+        }
+        if (acquired.Outcome is WorkAcquireOutcome.Busy or WorkAcquireOutcome.RetryLater) return WorkDispatchOutcome.Retry;
 
         using var processing = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var heartbeat = HeartbeatAsync(message.WorkId, processing.Token);
+        var leaseLost = 0;
+        var heartbeat = HeartbeatAsync(message.WorkId, () =>
+        {
+            Interlocked.Exchange(ref leaseLost, 1);
+            processing.Cancel();
+        }, processing.Token);
         try
         {
             switch (message.Kind)
             {
                 case "PlanRequested":
                     await planHandler.ExecuteAsync(message.SubjectId, processing.Token);
-                    await inbox.SaveCheckpointAsync(message.WorkId, owner, new WorkCheckpoint("plan-ready", 0, "{}", DateTime.UtcNow), processing.Token);
+                    await inbox.SaveCheckpointAsync(message.WorkId, owner, new WorkCheckpoint("plan-finished", 0, "{}", DateTime.UtcNow), processing.Token);
                     break;
                 case "RunRequested":
                     await campaignRunner.ExecuteAsync(
@@ -52,12 +68,23 @@ internal sealed class WorkDispatcher(
             await inbox.CompleteAsync(message.WorkId, owner, DateTime.UtcNow, CancellationToken.None);
             return WorkDispatchOutcome.Acknowledged;
         }
+        catch (OperationCanceledException) when (Volatile.Read(ref leaseLost) == 1)
+        {
+            return WorkDispatchOutcome.Retry;
+        }
+        catch (WorkLeaseLostException)
+        {
+            return WorkDispatchOutcome.Retry;
+        }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             var failure = Classify(exception, message.Kind);
+            var kind = Enum.TryParse<WorkKind>(message.Kind, out var parsed) ? parsed : WorkKind.Unknown;
+            var maxRetries = await subjects.GetMaxRetriesAsync(kind, message.SubjectId, CancellationToken.None);
             var outcome = await inbox.RecordFailureAsync(message.WorkId, owner, failure, maxRetries, DateTime.UtcNow, CancellationToken.None);
             if (outcome == WorkFailureOutcome.DeadLettered)
             {
+                await subjects.MarkDeadLetteredAsync(kind, message.SubjectId, failure, DateTime.UtcNow, CancellationToken.None);
                 await publisher.PublishDeadLetterAsync(ToDispatch(message), failure, CancellationToken.None);
                 return WorkDispatchOutcome.Acknowledged;
             }
@@ -70,20 +97,28 @@ internal sealed class WorkDispatcher(
         }
     }
 
-    private async Task HeartbeatAsync(Guid workId, CancellationToken cancellationToken)
+    private async Task HeartbeatAsync(Guid workId, Action leaseLost, CancellationToken cancellationToken)
     {
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                await Task.Delay(TimeSpan.FromTicks(Math.Max(TimeSpan.FromSeconds(1).Ticks, leaseDuration.Ticks / 3)), cancellationToken);
+                await Task.Delay(heartbeatInterval, cancellationToken);
                 await using var scope = scopeFactory.CreateAsyncScope();
                 var heartbeatInbox = scope.ServiceProvider.GetRequiredService<IWorkInbox>();
-                if (!await heartbeatInbox.HeartbeatAsync(workId, owner, DateTime.UtcNow, leaseDuration, cancellationToken)) return;
+                if (!await heartbeatInbox.HeartbeatAsync(workId, owner, DateTime.UtcNow, leaseDuration, cancellationToken))
+                {
+                    leaseLost();
+                    return;
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+        }
+        catch
+        {
+            leaseLost();
         }
     }
 

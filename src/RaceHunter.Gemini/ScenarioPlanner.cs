@@ -63,8 +63,18 @@ public sealed class ScenarioPlanner(IStructuredModelClient modelClient) : IScena
             if (payload.Actors.Any(actor => !operationIds.Contains(actor.OperationId))) throw new JsonException("unknown operation");
             if (!context.AllowedInvariantTypes.Contains(payload.Invariant.Type, StringComparer.Ordinal)) throw new JsonException("unknown invariant type");
             if (!context.AllowedStrategies.Contains(payload.Strategy.Kind, StringComparer.Ordinal)) throw new JsonException("unknown strategy");
+            if (context.AllowedObservationMetrics is not null && !context.AllowedObservationMetrics.Contains(payload.Invariant.Metric, StringComparer.Ordinal))
+                throw new JsonException("unknown observation metric");
             if (payload.Strategy.ActorCount < 1 || payload.Strategy.ActorCount > context.Budget.MaxActors) throw new JsonException("actor count exceeds server budget");
             if (payload.Invariant.Type == "numeric-boundary" && payload.Invariant.Maximum is null) throw new JsonException("numeric boundary maximum is required");
+            if (payload.Invariant.Type == "cross-observation" &&
+                (string.IsNullOrWhiteSpace(payload.Invariant.LeftMetric) || string.IsNullOrWhiteSpace(payload.Invariant.RightMetric) ||
+                 payload.Invariant.Relation is not ("equal" or "less-than-or-equal" or "greater-than-or-equal")))
+                throw new JsonException("cross-observation metrics and relation are required");
+            if (payload.Invariant.Type == "cross-observation" && context.AllowedObservationMetrics is not null &&
+                (!context.AllowedObservationMetrics.Contains(payload.Invariant.LeftMetric!, StringComparer.Ordinal) ||
+                 !context.AllowedObservationMetrics.Contains(payload.Invariant.RightMetric!, StringComparer.Ordinal)))
+                throw new JsonException("unknown cross-observation metric");
 
             var validatedJson = JsonSerializer.Serialize(payload, JsonOptions);
             var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(validatedJson))).ToLowerInvariant()[..16];
@@ -75,7 +85,13 @@ public sealed class ScenarioPlanner(IStructuredModelClient modelClient) : IScena
                 response.ModelId,
                 response.InvocationId,
                 payload.Actors.Select(item => new PlannedActor(item.Name, item.OperationId)).ToArray(),
-                new PlannedInvariant(payload.Invariant.Type, payload.Invariant.Metric, payload.Invariant.Maximum),
+                new PlannedInvariant(
+                    payload.Invariant.Type,
+                    payload.Invariant.Metric,
+                    payload.Invariant.Maximum,
+                    payload.Invariant.LeftMetric,
+                    payload.Invariant.RightMetric,
+                    payload.Invariant.Relation),
                 new PlannedStrategy(payload.Strategy.Kind, payload.Strategy.ActorCount, payload.Strategy.Seed),
                 modelCallsConsumed,
                 validatedJson);
@@ -93,7 +109,7 @@ public sealed class ScenarioPlanner(IStructuredModelClient modelClient) : IScena
     {
         var prompt = PromptResources.Read("plan-v1.txt");
         var operations = string.Join(',', context.AllowedOperations.Select(item => $"{item.Id}:{item.Method}:{item.Path}"));
-        return $"{prompt}\nobjective={context.Objective}\noperations={operations}\ninvariantTypes={string.Join(',', context.AllowedInvariantTypes)}\nstrategies={string.Join(',', context.AllowedStrategies)}\nmaxActors={context.Budget.MaxActors};maxConcurrency={context.Budget.MaxConcurrentActors};maxRequests={context.Budget.MaxRequests};maxModelCalls={context.Budget.MaxModelCalls};maxDurationSeconds={(int)context.Budget.MaxDuration.TotalSeconds}";
+        return $"{prompt}\nobjective={context.Objective}\noperations={operations}\ninvariantTypes={string.Join(',', context.AllowedInvariantTypes)}\nobservationMetrics={string.Join(',', context.AllowedObservationMetrics ?? [])}\nstrategies={string.Join(',', context.AllowedStrategies)}\nmaxActors={context.Budget.MaxActors};maxConcurrency={context.Budget.MaxConcurrentActors};maxRequests={context.Budget.MaxRequests};maxModelCalls={context.Budget.MaxModelCalls};maxDurationSeconds={(int)context.Budget.MaxDuration.TotalSeconds}";
     }
 
     private static string Sanitize(string message) => message switch
@@ -124,6 +140,9 @@ public sealed class ScenarioPlanner(IStructuredModelClient modelClient) : IScena
         public required string Type { get; init; }
         public required string Metric { get; init; }
         public decimal? Maximum { get; init; }
+        public string? LeftMetric { get; init; }
+        public string? RightMetric { get; init; }
+        public string? Relation { get; init; }
     }
 
     private sealed record StrategyPayload

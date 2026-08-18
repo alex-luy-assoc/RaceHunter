@@ -124,6 +124,8 @@ Verified Phase 3 capabilities and commands:
 - `npm run lint --prefix src/RaceHunter.Web` and `npm run build --prefix src/RaceHunter.Web`.
 - `docker compose config --quiet`, three image builds, and a fresh-volume Pub/Sub-emulator plan/approve/run smoke journey.
 
+Phase 3 compliance remediation raised the verified suite to 95 .NET tests plus 2 Vitest UI tests. `npm test --prefix src/RaceHunter.Web` verifies that Live Campaign loads current run state and every persisted 100-row event page before opening SSE after the latest database cursor. Lease takeover uses conditional PostgreSQL updates, retry ceilings come from persisted subject budgets, and duration recovery subtracts elapsed time from the original run start.
+
 The live Vertex invocation and deployed Pub/Sub/Cloud Run smoke remain approval-gated. Ordinary tests and local smoke use deterministic model fakes and the Pub/Sub emulator and require no Google credentials.
 
 ## Open Technical Decisions

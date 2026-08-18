@@ -1,4 +1,4 @@
-import type { ApprovalResponse, HuntResponse, PlanResponse } from './contracts'
+import type { ApprovalResponse, HuntResponse, PlanResponse, RunEvent, RunResponse } from './contracts'
 
 async function requireOk(response: Response) {
   if (!response.ok) throw new Error((await response.json() as { detail?: string }).detail ?? `Request failed (${response.status})`)
@@ -32,4 +32,14 @@ export async function approvePlan(huntId: string, planVersion: string, idempoten
     body: JSON.stringify({ planVersion, idempotencyKey })
   }))
   return response.json() as Promise<ApprovalResponse>
+}
+
+export async function getRun(runId: string): Promise<RunResponse> {
+  const response = await requireOk(await fetch(`/api/runs/${runId}`))
+  return response.json() as Promise<RunResponse>
+}
+
+export async function getRunEvents(runId: string, after: number): Promise<RunEvent[]> {
+  const response = await requireOk(await fetch(`/api/runs/${runId}/events?after=${after}`))
+  return response.json() as Promise<RunEvent[]>
 }

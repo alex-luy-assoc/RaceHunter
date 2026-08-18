@@ -49,6 +49,8 @@
 - Retry only classified transient failures with bounded exponential backoff and jitter. Never automatically retry unsafe target operations without an idempotency mechanism.
 - Dead-letter poison messages and surface them through operations state.
 - Persist an attempt checkpoint immediately after deterministic target work and before asking the model. Persist the validated agent decision, run event, and next work checkpoint in one database transaction. Lease recovery may reuse a completed attempt or resume after a decision, but must not spend target or model budgets twice after a durable boundary.
+- Acquire an expired work lease with one conditional database update; a prior read never grants ownership. Busy/retry-scheduled push deliveries remain unacknowledged for later recovery. If heartbeat renewal fails or ownership expires, cancel the handler token immediately and reject stale checkpoint, failure, and completion writes.
+- Resolve retries from the persisted hunt/run budget and count delivery attempts cumulatively. Resolve campaign duration from the original persisted run start, never from worker-process start. Dead-letter state must be idempotently projected onto a non-terminal subject with refresh-visible recovery guidance.
 
 ## Agent Loop Pattern
 

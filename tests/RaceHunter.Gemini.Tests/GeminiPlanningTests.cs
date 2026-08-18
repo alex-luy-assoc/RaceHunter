@@ -13,7 +13,8 @@ public sealed class GeminiPlanningTests
         [new AllowedTargetOperation("place-order", "POST", "/api/orders")],
         ["numeric-boundary"],
         ["simultaneous-start", "seeded-jitter", "checkpoint-interleaving"],
-        ExperimentBudget.PublicSandbox);
+        ExperimentBudget.PublicSandbox,
+        ["successful-orders", "inventory-capacity", "order-correlation"]);
 
     [Fact]
     public async Task Planning_input_names_objective_operations_and_server_budgets()
@@ -27,6 +28,7 @@ public sealed class GeminiPlanningTests
         Assert.Contains("maxActors=10", input, StringComparison.Ordinal);
         Assert.Contains("maxRequests=40", input, StringComparison.Ordinal);
         Assert.Contains("maxModelCalls=5", input, StringComparison.Ordinal);
+        Assert.Contains("inventory-capacity", input, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -109,6 +111,21 @@ public sealed class GeminiPlanningTests
         var json = """{"schemaVersion":"strategy-v1","action":"change-actor-count","actorCount":50,"strategy":"simultaneous-start","timingAdjustmentMs":0,"rationaleSummary":"Try more."}""";
         var model = new ScriptedModelClient(json, json);
         await Assert.ThrowsAsync<ModelOutputException>(() => new ExperimentStrategist(model).SelectNextAsync(StrategyContext(), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Cross_observation_plan_requires_executable_metrics_and_relation()
+    {
+        var json = """{"schemaVersion":"plan-v1","actors":[{"name":"buyer","operationId":"place-order"}],"invariant":{"type":"cross-observation","metric":"successful-orders","maximum":null,"leftMetric":"successful-orders","rightMetric":"inventory-capacity","relation":"less-than-or-equal"},"strategy":{"kind":"simultaneous-start","actorCount":2,"seed":42}}""";
+        var plan = await new ScenarioPlanner(new ScriptedModelClient(json)).PlanAsync(Context with
+        {
+            AllowedInvariantTypes = ["numeric-boundary", "cardinality", "cross-observation"],
+            AllowedObservationMetrics = ["successful-orders", "inventory-capacity", "order-correlation"]
+        }, CancellationToken.None);
+
+        Assert.Equal("successful-orders", plan.Invariant.LeftMetric);
+        Assert.Equal("inventory-capacity", plan.Invariant.RightMetric);
+        Assert.Equal("less-than-or-equal", plan.Invariant.Relation);
     }
 
     private static StrategySelectionContext StrategyContext() => new(

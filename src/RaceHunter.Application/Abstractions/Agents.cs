@@ -11,10 +11,17 @@ public sealed record PlanningContext(
     IReadOnlyList<AllowedTargetOperation> AllowedOperations,
     IReadOnlyList<string> AllowedInvariantTypes,
     IReadOnlyList<string> AllowedStrategies,
-    ExperimentBudget Budget);
+    ExperimentBudget Budget,
+    IReadOnlyList<string>? AllowedObservationMetrics = null);
 
 public sealed record PlannedActor(string Name, string OperationId);
-public sealed record PlannedInvariant(string Type, string Metric, decimal? Maximum);
+public sealed record PlannedInvariant(
+    string Type,
+    string Metric,
+    decimal? Maximum,
+    string? LeftMetric = null,
+    string? RightMetric = null,
+    string? Relation = null);
 public sealed record PlannedStrategy(string Kind, int ActorCount, int Seed);
 
 public sealed record ScenarioPlan(
@@ -103,6 +110,40 @@ public sealed class ModelOutputException(ModelOutcome outcome, string sanitizedD
 }
 
 public sealed class AgentActionValidationException(string message) : Exception(message);
+
+public static class PlannedInvariantCompiler
+{
+    public static InvariantDefinition Compile(PlannedInvariant invariant) => invariant.Type switch
+    {
+        "numeric-boundary" => new NumericBoundaryInvariant(
+            invariant.Metric,
+            invariant.Maximum ?? throw new InvalidOperationException("A numeric maximum is required.")),
+        "cardinality" => new CardinalityInvariant(invariant.Metric),
+        "cross-observation" => new CrossObservationInvariant(
+            Required(invariant.LeftMetric, "A left metric is required."),
+            Required(invariant.RightMetric, "A right metric is required."),
+            invariant.Relation switch
+            {
+                "equal" => CrossObservationRelation.Equal,
+                "less-than-or-equal" => CrossObservationRelation.LessThanOrEqual,
+                "greater-than-or-equal" => CrossObservationRelation.GreaterThanOrEqual,
+                _ => throw new InvalidOperationException("The cross-observation relation is unsupported.")
+            }),
+        _ => throw new InvalidOperationException("The approved invariant type is not executable.")
+    };
+
+    private static string Required(string? value, string message) =>
+        string.IsNullOrWhiteSpace(value) ? throw new InvalidOperationException(message) : value;
+}
+
+public static class CampaignBudgetWindow
+{
+    public static TimeSpan Remaining(DateTime startedAtUtc, TimeSpan maximumDuration, DateTime nowUtc)
+    {
+        var remaining = maximumDuration - (nowUtc - startedAtUtc);
+        return remaining <= TimeSpan.Zero ? TimeSpan.Zero : remaining;
+    }
+}
 
 public static class AgentActionValidator
 {

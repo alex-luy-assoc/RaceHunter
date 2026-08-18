@@ -19,5 +19,6 @@
     <Project Path="tests/RaceHunter.Infrastructure.IntegrationTests/RaceHunter.Infrastructure.IntegrationTests.csproj" />
     <Project Path="tests/RaceHunter.Gemini.Tests/RaceHunter.Gemini.Tests.csproj" />
     <Project Path="tests/RaceHunter.ReferenceTarget.Tests/RaceHunter.ReferenceTarget.Tests.csproj" />
+    <Project Path="tests/RaceHunter.Worker.Tests/RaceHunter.Worker.Tests.csproj" />
   </Folder>
 </Solution>

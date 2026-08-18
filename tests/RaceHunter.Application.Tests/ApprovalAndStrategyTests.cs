@@ -90,6 +90,30 @@ public sealed class ApprovalAndStrategyTests
         Assert.Equal(2, exhausted.ModelCalls);
     }
 
+    [Fact]
+    public void Campaign_duration_budget_uses_remaining_time_from_original_start()
+    {
+        var startedAt = DateTime.Parse("2026-08-18T12:00:00Z").ToUniversalTime();
+        Assert.Equal(TimeSpan.FromSeconds(15), CampaignBudgetWindow.Remaining(startedAt, TimeSpan.FromSeconds(90), startedAt.AddSeconds(75)));
+        Assert.Equal(TimeSpan.Zero, CampaignBudgetWindow.Remaining(startedAt, TimeSpan.FromSeconds(90), startedAt.AddSeconds(91)));
+    }
+
+    [Fact]
+    public void Cross_observation_plan_compiles_to_deterministic_runtime_invariant()
+    {
+        var planned = new PlannedInvariant(
+            "cross-observation",
+            "successful-orders",
+            null,
+            "successful-orders",
+            "inventory-capacity",
+            "less-than-or-equal");
+        var compiled = Assert.IsType<CrossObservationInvariant>(PlannedInvariantCompiler.Compile(planned));
+        Assert.Equal("successful-orders", compiled.LeftMetric);
+        Assert.Equal("inventory-capacity", compiled.RightMetric);
+        Assert.Equal(CrossObservationRelation.LessThanOrEqual, compiled.Relation);
+    }
+
     private static AdaptiveCampaignContext Context() => new(
         Guid.NewGuid(),
         new CampaignSettings(2, "simultaneous-start", 0),

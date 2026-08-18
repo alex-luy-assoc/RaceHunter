@@ -16,8 +16,8 @@ internal sealed class AgentDecisionCheckpointStore(RaceHunterDbContext context) 
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         var inbox = await context.WorkInbox.SingleOrDefaultAsync(item =>
-            item.WorkId == workId && item.Status == "Processing" && item.LeaseOwner == leaseOwner, cancellationToken)
-            ?? throw new InvalidOperationException("The decision checkpoint lease is no longer owned by this worker.");
+            item.WorkId == workId && item.Status == "Processing" && item.LeaseOwner == leaseOwner && item.LeaseExpiresAtUtc > checkpoint.PersistedAtUtc, cancellationToken)
+            ?? throw new WorkLeaseLostException("The decision checkpoint lease is no longer owned by this worker.");
         if (await context.AgentIterations.AnyAsync(item => item.RunId == iteration.RunId && item.Iteration == iteration.Iteration, cancellationToken))
             throw new InvalidOperationException("The agent iteration was already persisted without its checkpoint.");
 

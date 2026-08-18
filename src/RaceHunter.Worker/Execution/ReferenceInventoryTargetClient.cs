@@ -24,7 +24,11 @@ internal sealed class ReferenceInventoryTargetClient(HttpClient client)
         if (body is null) throw new InvalidOperationException("The reference target returned no order evidence.");
         var targetCorrelationId = body.CorrelationId.ToString("N");
         return TargetCallResult.Success(
-            [Observation.Number("successful-orders", body.SuccessfulOrders, $"target-response:{targetCorrelationId}", targetCorrelationId)],
+            [
+                Observation.Number("successful-orders", body.SuccessfulOrders, $"target-response:{targetCorrelationId}", targetCorrelationId),
+                Observation.Number("inventory-capacity", 1, $"target-response:{targetCorrelationId}", targetCorrelationId),
+                Observation.Text("order-correlation", targetCorrelationId, $"target-response:{targetCorrelationId}", targetCorrelationId)
+            ],
             targetCorrelationId);
     }
 

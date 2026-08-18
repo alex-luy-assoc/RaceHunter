@@ -55,7 +55,10 @@ internal static class HuntEndpoints
         var hunt = await store.GetAsync(id, cancellationToken);
         if (hunt is null) return Results.NotFound();
         if (hunt.Status == HuntStatus.PlanningFailed)
-            return Results.Problem(statusCode: StatusCodes.Status422UnprocessableEntity, title: "Model planning failed", detail: "The schema-constrained plan could not be validated.");
+            return Results.Problem(
+                statusCode: StatusCodes.Status422UnprocessableEntity,
+                title: hunt.FailureOutcome?.StartsWith("DeadLettered", StringComparison.Ordinal) == true ? "Planning work dead-lettered" : "Model planning failed",
+                detail: hunt.FailureDiagnostic ?? "The schema-constrained plan could not be validated.");
         if (hunt.Plan is null) return Results.Accepted($"/api/hunts/{id}/plan");
         var plan = hunt.Plan;
         return Results.Ok(new PlanResponse(
@@ -64,7 +67,13 @@ internal static class HuntEndpoints
             plan.PromptVersion,
             plan.ModelId,
             plan.Actors.Select(item => new PlanActorResponse(item.Name, item.OperationId)).ToArray(),
-            new PlanInvariantResponse(plan.Invariant.Type, plan.Invariant.Metric, plan.Invariant.Maximum),
+            new PlanInvariantResponse(
+                plan.Invariant.Type,
+                plan.Invariant.Metric,
+                plan.Invariant.Maximum,
+                plan.Invariant.LeftMetric,
+                plan.Invariant.RightMetric,
+                plan.Invariant.Relation),
             new PlanStrategyResponse(plan.Strategy.Kind, plan.Strategy.ActorCount, plan.Strategy.Seed)));
     }
 

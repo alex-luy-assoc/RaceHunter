@@ -224,7 +224,9 @@ internal sealed class HuntWorkflowStore(RaceHunterDbContext context) : IHuntStor
         item.PlanJson is null ? null : JsonSerializer.Deserialize<ScenarioPlan>(item.PlanJson, JsonOptions),
         item.ApprovedPlanVersion,
         item.RunId,
-        item.CreatedAtUtc);
+        item.CreatedAtUtc,
+        item.FailureOutcome,
+        item.FailureDiagnostic);
 
     private static OutboxRecord ToOutbox(WorkDispatch work, DateTime nowUtc) => new()
     {
@@ -247,7 +249,7 @@ internal sealed class WorkInboxStore(RaceHunterDbContext context) : IWorkInbox
     {
         Validate(workId, messageId, owner, leaseDuration);
         nowUtc = EnsureUtc(nowUtc);
-        var record = await context.WorkInbox.SingleOrDefaultAsync(item => item.WorkId == workId, cancellationToken);
+        var record = await context.WorkInbox.AsNoTracking().SingleOrDefaultAsync(item => item.WorkId == workId, cancellationToken);
         if (record is null)
         {
             record = new WorkInboxRecord
@@ -269,32 +271,37 @@ internal sealed class WorkInboxStore(RaceHunterDbContext context) : IWorkInbox
             }
             catch (DbUpdateException)
             {
-                context.Entry(record).State = EntityState.Detached;
-                record = await context.WorkInbox.SingleAsync(item => item.WorkId == workId, cancellationToken);
+                context.ChangeTracker.Clear();
+                record = await context.WorkInbox.AsNoTracking().SingleAsync(item => item.WorkId == workId, cancellationToken);
             }
         }
 
-        if (record.Status is "Completed" or "DeadLettered")
-            return new WorkAcquireResult(WorkAcquireOutcome.Duplicate, record.DeliveryAttempt, ToCheckpoint(record));
-        if (record.Status == "RetryScheduled" && record.LeaseExpiresAtUtc > nowUtc)
-            return new WorkAcquireResult(WorkAcquireOutcome.RetryLater, record.DeliveryAttempt, ToCheckpoint(record));
-        if (record.Status == "Processing" && record.LeaseExpiresAtUtc > nowUtc)
-            return new WorkAcquireResult(WorkAcquireOutcome.Busy, record.DeliveryAttempt, ToCheckpoint(record));
+        var immediate = ClassifyUnavailable(record, nowUtc);
+        if (immediate is not null) return immediate;
 
-        record.Status = "Processing";
-        record.MessageId = messageId;
-        record.DeliveryAttempt++;
-        record.LeaseOwner = owner;
-        record.LeaseExpiresAtUtc = nowUtc + leaseDuration;
-        record.UpdatedAtUtc = nowUtc;
-        await context.SaveChangesAsync(cancellationToken);
-        return new WorkAcquireResult(WorkAcquireOutcome.Resumed, record.DeliveryAttempt, ToCheckpoint(record));
+        var takenOver = await context.WorkInbox
+            .Where(item => item.WorkId == workId &&
+                (item.Status == "Processing" || item.Status == "RetryScheduled") &&
+                (item.LeaseExpiresAtUtc == null || item.LeaseExpiresAtUtc <= nowUtc))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(item => item.Status, "Processing")
+                .SetProperty(item => item.MessageId, messageId)
+                .SetProperty(item => item.DeliveryAttempt, item => item.DeliveryAttempt + 1)
+                .SetProperty(item => item.LeaseOwner, owner)
+                .SetProperty(item => item.LeaseExpiresAtUtc, nowUtc + leaseDuration)
+                .SetProperty(item => item.UpdatedAtUtc, nowUtc), cancellationToken);
+        context.ChangeTracker.Clear();
+        var current = await context.WorkInbox.AsNoTracking().SingleAsync(item => item.WorkId == workId, cancellationToken);
+        if (takenOver == 1)
+            return new WorkAcquireResult(WorkAcquireOutcome.Resumed, current.DeliveryAttempt, ToCheckpoint(current));
+        return ClassifyUnavailable(current, nowUtc)
+            ?? throw new InvalidOperationException("The work lease changed to an unsupported state.");
     }
 
     public async Task<bool> HeartbeatAsync(Guid workId, string owner, DateTime nowUtc, TimeSpan leaseDuration, CancellationToken cancellationToken)
     {
         var updated = await context.WorkInbox
-            .Where(item => item.WorkId == workId && item.Status == "Processing" && item.LeaseOwner == owner)
+            .Where(item => item.WorkId == workId && item.Status == "Processing" && item.LeaseOwner == owner && item.LeaseExpiresAtUtc > EnsureUtc(nowUtc))
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(item => item.LeaseExpiresAtUtc, EnsureUtc(nowUtc) + leaseDuration)
                 .SetProperty(item => item.UpdatedAtUtc, EnsureUtc(nowUtc)), cancellationToken);
@@ -305,58 +312,83 @@ internal sealed class WorkInboxStore(RaceHunterDbContext context) : IWorkInbox
     public async Task SaveCheckpointAsync(Guid workId, string owner, WorkCheckpoint checkpoint, CancellationToken cancellationToken)
     {
         var updated = await context.WorkInbox
-            .Where(item => item.WorkId == workId && item.Status == "Processing" && item.LeaseOwner == owner)
+            .Where(item => item.WorkId == workId && item.Status == "Processing" && item.LeaseOwner == owner && item.LeaseExpiresAtUtc > EnsureUtc(checkpoint.PersistedAtUtc))
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(item => item.CheckpointBoundary, checkpoint.Boundary)
                 .SetProperty(item => item.CheckpointIteration, checkpoint.Iteration)
                 .SetProperty(item => item.CheckpointStateJson, checkpoint.StateJson)
                 .SetProperty(item => item.CheckpointAtUtc, EnsureUtc(checkpoint.PersistedAtUtc))
                 .SetProperty(item => item.UpdatedAtUtc, EnsureUtc(checkpoint.PersistedAtUtc)), cancellationToken);
-        if (updated != 1) throw new InvalidOperationException("The checkpoint lease is no longer owned by this worker.");
+        if (updated != 1) throw new WorkLeaseLostException("The checkpoint lease is no longer owned by this worker.");
         context.ChangeTracker.Clear();
     }
 
     public async Task CompleteAsync(Guid workId, string owner, DateTime nowUtc, CancellationToken cancellationToken)
     {
         var updated = await context.WorkInbox
-            .Where(item => item.WorkId == workId && item.Status == "Processing" && item.LeaseOwner == owner)
+            .Where(item => item.WorkId == workId && item.Status == "Processing" && item.LeaseOwner == owner && item.LeaseExpiresAtUtc > EnsureUtc(nowUtc))
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(item => item.Status, "Completed")
                 .SetProperty(item => item.LeaseOwner, (string?)null)
                 .SetProperty(item => item.LeaseExpiresAtUtc, (DateTime?)null)
                 .SetProperty(item => item.UpdatedAtUtc, EnsureUtc(nowUtc)), cancellationToken);
-        if (updated != 1) throw new InvalidOperationException("The completion lease is no longer owned by this worker.");
+        if (updated != 1) throw new WorkLeaseLostException("The completion lease is no longer owned by this worker.");
         context.ChangeTracker.Clear();
     }
 
     public async Task<WorkFailureOutcome> RecordFailureAsync(Guid workId, string owner, WorkFailure failure, int maxRetries, DateTime nowUtc, CancellationToken cancellationToken)
     {
-        var record = await context.WorkInbox.SingleOrDefaultAsync(item => item.WorkId == workId, cancellationToken)
-            ?? throw new InvalidOperationException("The work inbox item does not exist.");
-        if (record.Status != "Processing" || record.LeaseOwner != owner) throw new InvalidOperationException("The failure lease is no longer owned by this worker.");
-        record.FailureCategory = failure.Category.ToString();
-        record.FailureDiagnostic = failure.SanitizedDiagnostic;
-        record.UpdatedAtUtc = EnsureUtc(nowUtc);
-        record.LeaseOwner = null;
-        record.LeaseExpiresAtUtc = null;
-        if (failure.Transient && failure.OperationIsIdempotent && record.DeliveryAttempt <= maxRetries)
+        nowUtc = EnsureUtc(nowUtc);
+        if (failure.Transient && failure.OperationIsIdempotent)
         {
-            record.Status = "RetryScheduled";
-            record.LeaseExpiresAtUtc = EnsureUtc(nowUtc) + WorkRetryPolicy.Delay(record.DeliveryAttempt, workId);
-            await context.SaveChangesAsync(cancellationToken);
-            return WorkFailureOutcome.RetryScheduled;
+            var deliveryAttempt = await context.WorkInbox.AsNoTracking()
+                .Where(item => item.WorkId == workId && item.Status == "Processing" && item.LeaseOwner == owner && item.LeaseExpiresAtUtc > nowUtc)
+                .Select(item => (int?)item.DeliveryAttempt)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (deliveryAttempt.HasValue && deliveryAttempt.Value <= maxRetries)
+            {
+                var retryAt = nowUtc + WorkRetryPolicy.Delay(deliveryAttempt.Value, workId);
+                var retryUpdated = await context.WorkInbox
+                    .Where(item => item.WorkId == workId && item.Status == "Processing" && item.LeaseOwner == owner &&
+                        item.LeaseExpiresAtUtc > nowUtc && item.DeliveryAttempt == deliveryAttempt.Value)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(item => item.Status, "RetryScheduled")
+                        .SetProperty(item => item.FailureCategory, failure.Category.ToString())
+                        .SetProperty(item => item.FailureDiagnostic, failure.SanitizedDiagnostic)
+                        .SetProperty(item => item.UpdatedAtUtc, nowUtc)
+                        .SetProperty(item => item.LeaseOwner, (string?)null)
+                        .SetProperty(item => item.LeaseExpiresAtUtc, retryAt), cancellationToken);
+                context.ChangeTracker.Clear();
+                if (retryUpdated == 1) return WorkFailureOutcome.RetryScheduled;
+            }
         }
 
-        record.Status = "DeadLettered";
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        var deadLetterUpdated = await context.WorkInbox
+            .Where(item => item.WorkId == workId && item.Status == "Processing" && item.LeaseOwner == owner && item.LeaseExpiresAtUtc > nowUtc)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(item => item.Status, "DeadLettered")
+                .SetProperty(item => item.FailureCategory, failure.Category.ToString())
+                .SetProperty(item => item.FailureDiagnostic, failure.SanitizedDiagnostic)
+                .SetProperty(item => item.UpdatedAtUtc, nowUtc)
+                .SetProperty(item => item.LeaseOwner, (string?)null)
+                .SetProperty(item => item.LeaseExpiresAtUtc, (DateTime?)null), cancellationToken);
+        if (deadLetterUpdated != 1)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw new WorkLeaseLostException("The failure lease is no longer owned by this worker.");
+        }
         context.DeadLetters.Add(new DeadLetterRecord
         {
             Id = Guid.NewGuid(),
             WorkId = workId,
             Category = failure.Category.ToString(),
             Diagnostic = failure.SanitizedDiagnostic,
-            CreatedAtUtc = EnsureUtc(nowUtc)
+            CreatedAtUtc = nowUtc
         });
         await context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        context.ChangeTracker.Clear();
         return WorkFailureOutcome.DeadLettered;
     }
 
@@ -365,12 +397,116 @@ internal sealed class WorkInboxStore(RaceHunterDbContext context) : IWorkInbox
             ? null
             : new WorkCheckpoint(item.CheckpointBoundary, item.CheckpointIteration.Value, item.CheckpointStateJson, item.CheckpointAtUtc.Value);
 
+    private static WorkAcquireResult? ClassifyUnavailable(WorkInboxRecord record, DateTime nowUtc)
+    {
+        if (record.Status == "Completed")
+            return new WorkAcquireResult(WorkAcquireOutcome.Duplicate, record.DeliveryAttempt, ToCheckpoint(record));
+        if (record.Status == "DeadLettered")
+        {
+            var category = Enum.TryParse<WorkFailureCategory>(record.FailureCategory, out var parsed) ? parsed : WorkFailureCategory.Poison;
+            return new WorkAcquireResult(
+                WorkAcquireOutcome.DeadLettered,
+                record.DeliveryAttempt,
+                ToCheckpoint(record),
+                new WorkFailure(category, false, true, record.FailureDiagnostic ?? "work was dead-lettered"));
+        }
+        if (record.Status == "RetryScheduled" && record.LeaseExpiresAtUtc > nowUtc)
+            return new WorkAcquireResult(WorkAcquireOutcome.RetryLater, record.DeliveryAttempt, ToCheckpoint(record));
+        if (record.Status == "Processing" && record.LeaseExpiresAtUtc > nowUtc)
+            return new WorkAcquireResult(WorkAcquireOutcome.Busy, record.DeliveryAttempt, ToCheckpoint(record));
+        return null;
+    }
+
     private static void Validate(Guid workId, string messageId, string owner, TimeSpan leaseDuration)
     {
         if (workId == Guid.Empty) throw new ArgumentException("A work ID is required.", nameof(workId));
         if (string.IsNullOrWhiteSpace(messageId)) throw new ArgumentException("A message ID is required.", nameof(messageId));
         if (string.IsNullOrWhiteSpace(owner)) throw new ArgumentException("A lease owner is required.", nameof(owner));
         if (leaseDuration <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(leaseDuration));
+    }
+
+    private static DateTime EnsureUtc(DateTime value) => value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+}
+
+internal sealed class WorkSubjectStore(RaceHunterDbContext context) : IWorkSubjectStore
+{
+    private const string RecoveryGuidance = "Create a new hunt after correcting the work contract or transient dependency, then approve a new plan version.";
+
+    public async Task<int> GetMaxRetriesAsync(WorkKind kind, Guid subjectId, CancellationToken cancellationToken)
+    {
+        if (kind is WorkKind.PlanRequested or WorkKind.Unknown)
+        {
+            var huntRetries = await context.Hunts.AsNoTracking()
+                .Where(item => item.Id == subjectId)
+                .Select(item => (int?)item.MaxRetries)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (huntRetries.HasValue) return huntRetries.Value;
+        }
+        if (kind is WorkKind.RunRequested or WorkKind.Unknown)
+        {
+            var runRetries = await context.Runs.AsNoTracking()
+                .Where(item => item.Id == subjectId)
+                .Select(item => (int?)item.MaxRetries)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (runRetries.HasValue) return runRetries.Value;
+        }
+        return 0;
+    }
+
+    public async Task MarkDeadLetteredAsync(
+        WorkKind kind,
+        Guid subjectId,
+        WorkFailure failure,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        nowUtc = EnsureUtc(nowUtc);
+        if (kind is WorkKind.PlanRequested or WorkKind.Unknown)
+        {
+            var hunt = await context.Hunts.SingleOrDefaultAsync(item => item.Id == subjectId, cancellationToken);
+            if (hunt is not null)
+            {
+                if (hunt.Status != nameof(HuntStatus.Planning)) return;
+                if (!await context.HuntEvents.AnyAsync(item => item.HuntId == subjectId && item.Kind == "work-dead-lettered", cancellationToken))
+                {
+                    hunt.Status = nameof(HuntStatus.PlanningFailed);
+                    hunt.FailureOutcome = $"DeadLettered:{failure.Category}";
+                    hunt.FailureDiagnostic = RecoveryGuidance;
+                    var cursor = (await context.HuntEvents.Where(item => item.HuntId == subjectId).Select(item => (long?)item.Cursor).MaxAsync(cancellationToken) ?? 0) + 1;
+                    context.HuntEvents.Add(new HuntEventRecord
+                    {
+                        HuntId = subjectId,
+                        Cursor = cursor,
+                        Kind = "work-dead-lettered",
+                        Message = $"Work stopped after retry exhaustion ({failure.Category}). {RecoveryGuidance}",
+                        OccurredAtUtc = nowUtc
+                    });
+                    await context.SaveChangesAsync(cancellationToken);
+                }
+                return;
+            }
+        }
+
+        if (kind is WorkKind.RunRequested or WorkKind.Unknown)
+        {
+            var run = await context.Runs.SingleOrDefaultAsync(item => item.Id == subjectId, cancellationToken);
+            if (run is not null && run.Status is not (nameof(RunStatus.Completed) or nameof(RunStatus.Failed) or nameof(RunStatus.Cancelled)) &&
+                !await context.RunEvents.AnyAsync(item => item.RunId == subjectId && item.Kind == "work-dead-lettered", cancellationToken))
+            {
+                run.Status = nameof(RunStatus.Failed);
+                run.CompletedAtUtc = nowUtc;
+                var cursor = (await context.RunEvents.Where(item => item.RunId == subjectId).Select(item => (long?)item.Cursor).MaxAsync(cancellationToken) ?? 0) + 1;
+                context.RunEvents.Add(new RunEventRecord
+                {
+                    RunId = subjectId,
+                    Cursor = cursor,
+                    Kind = "work-dead-lettered",
+                    Message = $"Work stopped after retry exhaustion ({failure.Category}). {RecoveryGuidance}",
+                    OccurredAtUtc = nowUtc
+                });
+                await context.SaveChangesAsync(cancellationToken);
+            }
+        }
     }
 
     private static DateTime EnsureUtc(DateTime value) => value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);

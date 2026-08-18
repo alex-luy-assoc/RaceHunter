@@ -111,6 +111,77 @@ public sealed class MessagingRecoveryTests(PersistenceDatabaseFixture fixture) :
         var deadLetter = await store.RecordFailureAsync(poisonWork, "worker-a", new WorkFailure(WorkFailureCategory.Target, true, false, "unsafe mutation"), maxRetries: 2, now, CancellationToken.None);
         Assert.Equal(WorkFailureOutcome.DeadLettered, deadLetter);
         Assert.Equal(1, await context.DeadLetters.CountAsync(item => item.WorkId == poisonWork));
+        var poisonRedelivery = await store.TryAcquireAsync(poisonWork, "message-7-redelivery", "worker-b", now.AddSeconds(10), TimeSpan.FromSeconds(5), CancellationToken.None);
+        Assert.Equal(WorkAcquireOutcome.DeadLettered, poisonRedelivery.Outcome);
+        Assert.Equal(WorkFailureCategory.Target, poisonRedelivery.Failure!.Category);
+    }
+
+    [Fact]
+    public async Task Concurrent_expired_lease_takeover_has_exactly_one_owner()
+    {
+        var now = DateTime.UtcNow;
+        var workId = Guid.NewGuid();
+        await using (var seed = await CreateContextAsync())
+            await new WorkInboxStore(seed).TryAcquireAsync(workId, "original", "worker-a", now, TimeSpan.FromSeconds(1), CancellationToken.None);
+
+        await using var firstContext = await CreateContextAsync();
+        await using var secondContext = await CreateContextAsync();
+        var takeoverAt = now.AddSeconds(2);
+        var results = await Task.WhenAll(
+            new WorkInboxStore(firstContext).TryAcquireAsync(workId, "redelivery-1", "worker-b", takeoverAt, TimeSpan.FromSeconds(30), CancellationToken.None),
+            new WorkInboxStore(secondContext).TryAcquireAsync(workId, "redelivery-2", "worker-c", takeoverAt, TimeSpan.FromSeconds(30), CancellationToken.None));
+
+        Assert.Single(results, item => item.Outcome == WorkAcquireOutcome.Resumed);
+        Assert.Single(results, item => item.Outcome == WorkAcquireOutcome.Busy);
+    }
+
+    [Fact]
+    public async Task Retry_budget_is_cumulative_across_recovered_deliveries()
+    {
+        await using var context = await CreateContextAsync();
+        var store = new WorkInboxStore(context);
+        var now = DateTime.UtcNow;
+        var workId = Guid.NewGuid();
+        await store.TryAcquireAsync(workId, "attempt-1", "worker-a", now, TimeSpan.FromSeconds(1), CancellationToken.None);
+        Assert.Equal(WorkFailureOutcome.RetryScheduled, await store.RecordFailureAsync(
+            workId, "worker-a", new WorkFailure(WorkFailureCategory.Transport, true, true, "timeout"), 1, now, CancellationToken.None));
+        var resumed = await store.TryAcquireAsync(workId, "attempt-2", "worker-b", now.AddSeconds(5), TimeSpan.FromSeconds(1), CancellationToken.None);
+        Assert.Equal(2, resumed.DeliveryAttempt);
+        Assert.Equal(WorkFailureOutcome.DeadLettered, await store.RecordFailureAsync(
+            workId, "worker-b", new WorkFailure(WorkFailureCategory.Transport, true, true, "timeout"), 1, now.AddSeconds(5), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Dead_letter_marks_subject_failed_with_recovery_guidance()
+    {
+        await using var context = await CreateContextAsync();
+        var now = DateTime.UtcNow;
+        var run = ExperimentRun.Queue(Guid.NewGuid(), ExperimentBudget.PublicSandbox, now);
+        await new RunStore(context).AddAsync(run, CancellationToken.None);
+
+        await new WorkSubjectStore(context).MarkDeadLetteredAsync(
+            WorkKind.RunRequested,
+            run.Id,
+            new WorkFailure(WorkFailureCategory.Poison, false, true, "unsupported work contract"),
+            now.AddSeconds(1),
+            CancellationToken.None);
+
+        var persisted = await new RunStore(context).GetAsync(run.Id, CancellationToken.None);
+        Assert.Equal(RunStatus.Failed, persisted!.Status);
+        var events = await new RunStore(context).GetEventsAsync(run.Id, 0, CancellationToken.None);
+        Assert.Contains(events, item => item.Kind == "work-dead-lettered" && item.Message.Contains("Create a new hunt", StringComparison.Ordinal));
+
+        var terminal = ExperimentRun.Queue(Guid.NewGuid(), ExperimentBudget.PublicSandbox, now);
+        terminal.Start(now);
+        terminal.Complete(now.AddSeconds(1));
+        await new RunStore(context).AddAsync(terminal, CancellationToken.None);
+        await new WorkSubjectStore(context).MarkDeadLetteredAsync(
+            WorkKind.RunRequested,
+            terminal.Id,
+            new WorkFailure(WorkFailureCategory.Poison, false, true, "late duplicate"),
+            now.AddSeconds(2),
+            CancellationToken.None);
+        Assert.Equal(RunStatus.Completed, (await new RunStore(context).GetAsync(terminal.Id, CancellationToken.None))!.Status);
     }
 
     private async Task<RaceHunterDbContext> CreateContextAsync()

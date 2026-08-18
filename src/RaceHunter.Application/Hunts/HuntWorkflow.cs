@@ -22,7 +22,9 @@ public sealed record HuntSnapshot(
     ScenarioPlan? Plan,
     string? ApprovedPlanVersion,
     Guid? RunId,
-    DateTime CreatedAtUtc);
+    DateTime CreatedAtUtc,
+    string? FailureOutcome = null,
+    string? FailureDiagnostic = null);
 
 public sealed record HuntEvent(long Cursor, string Kind, string Message, DateTime OccurredAtUtc);
 

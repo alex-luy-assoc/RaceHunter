@@ -19,7 +19,13 @@ public sealed record PlanResponse(
     PlanInvariantResponse Invariant,
     PlanStrategyResponse Strategy);
 public sealed record PlanActorResponse(string Name, string OperationId);
-public sealed record PlanInvariantResponse(string Type, string Metric, decimal? Maximum);
+public sealed record PlanInvariantResponse(
+    string Type,
+    string Metric,
+    decimal? Maximum,
+    string? LeftMetric,
+    string? RightMetric,
+    string? Relation);
 public sealed record PlanStrategyResponse(string Kind, int ActorCount, int Seed);
 public sealed record ApproveRunRequest(string PlanVersion, string IdempotencyKey);
 public sealed record ApprovalResponse(Guid RunId, string PlanVersion);

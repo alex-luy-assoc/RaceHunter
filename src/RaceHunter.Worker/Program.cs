@@ -58,9 +58,9 @@ else
 {
     builder.Services.AddSingleton<IWorkPublisher, UnavailableWorkPublisher>();
 }
-builder.Services.AddScoped<PlanWorkHandler>();
+builder.Services.AddScoped<IPlanWorkHandler, PlanWorkHandler>();
 builder.Services.AddScoped<ReferenceCampaignAttemptExecutor>();
-builder.Services.AddScoped<CampaignRunner>();
+builder.Services.AddScoped<ICampaignWorkHandler, CampaignRunner>();
 builder.Services.AddScoped<WorkDispatcher>();
 builder.Services.AddHttpClient<ReferenceInventoryTargetClient>((services, client) =>
 {

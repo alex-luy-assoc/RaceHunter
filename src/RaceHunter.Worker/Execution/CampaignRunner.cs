@@ -14,7 +14,7 @@ internal sealed class CampaignRunner(
     IWorkInbox inbox,
     IAgentDecisionCheckpointStore decisionCheckpoints,
     IExperimentStrategist strategist,
-    ReferenceCampaignAttemptExecutor attemptExecutor)
+    ReferenceCampaignAttemptExecutor attemptExecutor) : ICampaignWorkHandler
 {
     public async Task ExecuteAsync(
         Guid runId,
@@ -36,8 +36,21 @@ internal sealed class CampaignRunner(
             await runs.SaveAsync(run, cancellationToken);
         }
 
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        bounded.CancelAfter(run.Budget.MaxDuration);
+        var now = DateTime.UtcNow;
+        var remainingDuration = CampaignBudgetWindow.Remaining(
+            run.StartedAtUtc ?? now,
+            run.Budget.MaxDuration,
+            now);
+        if (remainingDuration == TimeSpan.Zero)
+        {
+            run.AppendEvent("budget-exhausted", "The cumulative campaign duration budget was exhausted before recovery could resume.", now);
+            run.Fail(now);
+            await runs.SaveAsync(run, CancellationToken.None);
+            return;
+        }
+
+        using var timeout = new CancellationTokenSource(remainingDuration);
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         var recovered = RecoverSettings(recoveredCheckpoint, plan);
         var context = new AdaptiveCampaignContext(
             run.Id,
@@ -49,7 +62,7 @@ internal sealed class CampaignRunner(
             recovered.RequestsConsumed,
             recovered.HasCheckpoint ? recovered.ModelCallsConsumed : plan.ModelCallsConsumed,
             recovered.RecoveredAttempt);
-        var invariant = ToInvariant(plan.Invariant);
+        var invariant = PlannedInvariantCompiler.Compile(plan.Invariant);
         try
         {
             var result = await new AdaptiveStrategyLoop(strategist).RunAsync(
@@ -109,7 +122,7 @@ internal sealed class CampaignRunner(
             else run.Complete(DateTime.UtcNow);
             await runs.SaveAsync(run, CancellationToken.None);
         }
-        catch (OperationCanceledException) when (bounded.IsCancellationRequested)
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             var durable = await runs.GetAsync(runId, CancellationToken.None) ?? run;
             if (durable.Status == RunStatus.Running)
@@ -119,6 +132,10 @@ internal sealed class CampaignRunner(
                 else durable.Fail(DateTime.UtcNow);
                 await runs.SaveAsync(durable, CancellationToken.None);
             }
+            return;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
             throw;
         }
         catch (Exception exception)
@@ -133,13 +150,6 @@ internal sealed class CampaignRunner(
             throw;
         }
     }
-
-    private static InvariantDefinition ToInvariant(PlannedInvariant invariant) => invariant.Type switch
-    {
-        "numeric-boundary" => new NumericBoundaryInvariant(invariant.Metric, invariant.Maximum ?? throw new InvalidOperationException("A numeric maximum is required.")),
-        "cardinality" => new CardinalityInvariant(invariant.Metric),
-        _ => throw new InvalidOperationException("The approved invariant type is not executable in this phase.")
-    };
 
     private static string Classify(Exception exception) => exception switch
     {

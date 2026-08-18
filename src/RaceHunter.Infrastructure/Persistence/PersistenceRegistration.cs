@@ -21,6 +21,7 @@ public static class PersistenceRegistration
         services.AddScoped<IOutboxStore>(provider => provider.GetRequiredService<HuntWorkflowStore>());
         services.AddScoped<IAgentIterationStore>(provider => provider.GetRequiredService<HuntWorkflowStore>());
         services.AddScoped<IWorkInbox, WorkInboxStore>();
+        services.AddScoped<IWorkSubjectStore, WorkSubjectStore>();
         services.AddScoped<IAgentDecisionCheckpointStore, AgentDecisionCheckpointStore>();
         services.AddScoped<RunStore>();
         services.AddScoped<IRunStore>(provider => provider.GetRequiredService<RunStore>());

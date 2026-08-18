@@ -19,13 +19,14 @@ public enum WorkAcquireOutcome
 {
     Acquired,
     Duplicate,
+    DeadLettered,
     Busy,
     RetryLater,
     Resumed
 }
 
 public sealed record WorkCheckpoint(string Boundary, int Iteration, string StateJson, DateTime PersistedAtUtc);
-public sealed record WorkAcquireResult(WorkAcquireOutcome Outcome, int DeliveryAttempt, WorkCheckpoint? Checkpoint);
+public sealed record WorkAcquireResult(WorkAcquireOutcome Outcome, int DeliveryAttempt, WorkCheckpoint? Checkpoint, WorkFailure? Failure = null);
 
 public enum WorkFailureCategory
 {
@@ -59,6 +60,24 @@ public interface IWorkInbox
     Task SaveCheckpointAsync(Guid workId, string owner, WorkCheckpoint checkpoint, CancellationToken cancellationToken);
     Task CompleteAsync(Guid workId, string owner, DateTime nowUtc, CancellationToken cancellationToken);
     Task<WorkFailureOutcome> RecordFailureAsync(Guid workId, string owner, WorkFailure failure, int maxRetries, DateTime nowUtc, CancellationToken cancellationToken);
+}
+
+public sealed class WorkLeaseLostException(string message) : InvalidOperationException(message);
+
+public interface IPlanWorkHandler
+{
+    Task ExecuteAsync(Guid huntId, CancellationToken cancellationToken);
+}
+
+public interface ICampaignWorkHandler
+{
+    Task ExecuteAsync(Guid runId, Guid workId, string leaseOwner, WorkCheckpoint? checkpoint, CancellationToken cancellationToken);
+}
+
+public interface IWorkSubjectStore
+{
+    Task<int> GetMaxRetriesAsync(WorkKind kind, Guid subjectId, CancellationToken cancellationToken);
+    Task MarkDeadLetteredAsync(WorkKind kind, Guid subjectId, WorkFailure failure, DateTime nowUtc, CancellationToken cancellationToken);
 }
 
 public static class WorkRetryPolicy
