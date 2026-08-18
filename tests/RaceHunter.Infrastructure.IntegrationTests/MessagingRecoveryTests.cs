@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using RaceHunter.Application.Hunts;
@@ -21,6 +22,23 @@ public sealed class MessagingRecoveryTests(PersistenceDatabaseFixture fixture) :
         Assert.Equal("work-v1", parsed.Version);
         Assert.Equal(message.WorkId, parsed.WorkId);
         Assert.Equal("RunRequested", parsed.Kind);
+    }
+
+    [Fact]
+    public async Task Transactional_outbox_preserves_the_api_w3c_parent_for_background_pubsub_publish()
+    {
+        await using var context = await CreateContextAsync();
+        var store = new HuntWorkflowStore(context);
+        var hunt = new HuntSnapshot(Guid.NewGuid(), "trace continuity", ExperimentBudget.PublicSandbox, HuntStatus.Draft, null, null, null, DateTime.UtcNow);
+        await store.AddAsync(hunt, CancellationToken.None);
+        using var apiRequest = new Activity("api.request").SetIdFormat(ActivityIdFormat.W3C).Start();
+
+        await store.RequestPlanningAsync(hunt.Id, DateTime.UtcNow, CancellationToken.None);
+        var pending = await store.GetPendingAsync(10, CancellationToken.None);
+
+        var dispatch = Assert.Single(pending).Work;
+        Assert.Equal(apiRequest.Id, dispatch.TraceParent);
+        Assert.Equal(apiRequest.TraceId.ToString(), ActivityContext.Parse(dispatch.TraceParent!, dispatch.TraceState).TraceId.ToString());
     }
 
     [Fact]

@@ -17,6 +17,9 @@ test('real browser journey persists vulnerable proof and fixed replay across ref
   await expect(schedule).toContainText('Actor 1')
   await expect(schedule).toContainText('operation place-order')
   await expect(schedule).toContainText('offset 0 ms')
+  const cloudProof = page.getByRole('region', { name: 'Cloud proof' })
+  await expect(cloudProof).toContainText('racehunter-worker-local')
+  await expect(cloudProof).toContainText('deterministic-development-fake')
 
   await page.getByRole('button', { name: 'Verify Fix' }).click()
   const comparison = page.getByRole('region', { name: 'Replay comparison' })

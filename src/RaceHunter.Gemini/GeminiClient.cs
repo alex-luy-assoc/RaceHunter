@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Text.Json.Nodes;
 using Google.GenAI;
 using Google.GenAI.Types;
@@ -7,6 +9,9 @@ namespace RaceHunter.Gemini;
 
 public sealed class GoogleGenAiModelClient : IStructuredModelClient, IAsyncDisposable
 {
+    private static readonly ActivitySource Activities = new("RaceHunter");
+    private static readonly Meter Meter = new("RaceHunter");
+    private static readonly Counter<long> ModelCalls = Meter.CreateCounter<long>("racehunter.model.calls");
     private readonly Client client;
 
     public GoogleGenAiModelClient(string projectId, string location)
@@ -18,6 +23,11 @@ public sealed class GoogleGenAiModelClient : IStructuredModelClient, IAsyncDispo
 
     public async Task<ModelResponse> GenerateAsync(ModelRequest request, CancellationToken cancellationToken)
     {
+        using var activity = Activities.StartActivity("racehunter.model.generate", ActivityKind.Client);
+        activity?.SetTag("racehunter.model.id", request.ModelId);
+        activity?.SetTag("racehunter.model.schema", request.SchemaVersion);
+        activity?.SetTag("racehunter.model.prompt", request.PromptVersion);
+        activity?.SetTag("racehunter.model.repair", request.IsRepair);
         try
         {
             var response = await client.Models.GenerateContentAsync(
@@ -32,6 +42,8 @@ public sealed class GoogleGenAiModelClient : IStructuredModelClient, IAsyncDispo
                 cancellationToken);
             if (string.IsNullOrWhiteSpace(response.Text))
                 throw new ModelOutputException(ModelOutcome.InvalidOutput, "empty structured response");
+            activity?.SetTag("racehunter.model.invocation_id", response.ResponseId);
+            ModelCalls.Add(1, new KeyValuePair<string, object?>("model", request.ModelId));
             return new ModelResponse(
                 response.Text,
                 request.ModelId,

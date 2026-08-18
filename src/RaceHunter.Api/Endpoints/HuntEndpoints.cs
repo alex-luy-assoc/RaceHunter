@@ -1,4 +1,5 @@
 using System.Text.Json;
+using RaceHunter.Api.Security;
 using RaceHunter.Application.Hunts;
 using RaceHunter.Contracts;
 using RaceHunter.Domain.Budgets;
@@ -18,17 +19,30 @@ internal static class HuntEndpoints
         return endpoints;
     }
 
-    private static async Task<IResult> CreateAsync(CreateHuntRequest request, CreateHunt command, CancellationToken cancellationToken)
+    private static async Task<IResult> CreateAsync(
+        HttpContext context,
+        CreateHuntRequest request,
+        CreateHunt command,
+        IConfiguration configuration,
+        CancellationToken cancellationToken)
     {
         try
         {
+            var isAdmin = AdminAuthentication.IsAuthorized(context, configuration);
+            if (!isAdmin && request.TargetId.HasValue)
+                return Results.NotFound();
+            if (!isAdmin && ExceedsPublicSandbox(request))
+                return Results.Problem(
+                    statusCode: StatusCodes.Status403Forbidden,
+                    title: "Public sandbox budget exceeded",
+                    detail: "Public hunts are limited to 10 actors, 10 concurrent actors, 40 requests, 5 model calls, 90 seconds, and one retry.");
             var hunt = await command.ExecuteAsync(request.Objective, new ExperimentBudget(
                 request.MaxActors,
                 request.MaxConcurrency,
                 request.MaxRequests,
                 request.MaxModelCalls,
                 TimeSpan.FromSeconds(request.MaxDurationSeconds),
-                request.MaxRetries), cancellationToken);
+                request.MaxRetries), request.TargetId, cancellationToken);
             return Results.Created($"/api/hunts/{hunt.Id}", new HuntResponse(hunt.Id, hunt.Objective, hunt.Status.ToString(), hunt.CreatedAtUtc));
         }
         catch (DomainException exception)
@@ -36,6 +50,14 @@ internal static class HuntEndpoints
             return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Invalid hunt", detail: exception.Message);
         }
     }
+
+    private static bool ExceedsPublicSandbox(CreateHuntRequest request) =>
+        request.MaxActors > ExperimentBudget.PublicSandbox.MaxActors ||
+        request.MaxConcurrency > ExperimentBudget.PublicSandbox.MaxConcurrentActors ||
+        request.MaxRequests > ExperimentBudget.PublicSandbox.MaxRequests ||
+        request.MaxModelCalls > ExperimentBudget.PublicSandbox.MaxModelCalls ||
+        request.MaxDurationSeconds > ExperimentBudget.PublicSandbox.MaxDuration.TotalSeconds ||
+        request.MaxRetries > ExperimentBudget.PublicSandbox.MaxRetries;
 
     private static async Task<IResult> RequestPlanAsync(Guid id, GeneratePlan command, CancellationToken cancellationToken)
     {

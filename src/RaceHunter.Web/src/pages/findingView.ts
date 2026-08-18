@@ -3,9 +3,11 @@ import type { FindingResponse } from '../api/contracts'
 export const verifiedReferenceMessage = 'Race condition verified — reproduced 3/3 and minimized to 2 actors.'
 
 export function findingHeadline(finding: FindingResponse): string {
-  const measured = finding.reproductions.length === 3 && finding.reproductions.every(item => item.outcome === 'Fail')
+  const external = finding.agentInterpretation.includes('external-target')
+  const failures = finding.reproductions.filter(item => item.outcome === 'Fail').length
+  const measured = finding.reproductions.length === 3 && (external ? failures >= 2 : failures === 3)
   return measured && finding.replayArtifact.actorCount === 2
-    ? verifiedReferenceMessage
+    ? finding.successMessage
     : 'Finding evidence is not yet fully reproduced and minimized.'
 }
 

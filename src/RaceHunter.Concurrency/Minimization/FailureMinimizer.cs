@@ -32,6 +32,22 @@ public sealed class ReproductionVerifier
         var failures = attempts.Count(item => item.Outcome == InvariantOutcome.Fail);
         return new ReproductionResult(failures == requiredAttempts, failures, attempts);
     }
+
+    public async Task<ReproductionResult> VerifyExternalAsync(ReplayCandidate candidate, IReplayProbe probe, CancellationToken cancellationToken)
+    {
+        const int attemptsRequired = 3;
+        var attempts = new List<ReproductionAttemptResult>(attemptsRequired);
+        for (var attempt = 1; attempt <= attemptsRequired; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var observation = probe is IKeyedReplayProbe keyed
+                ? await keyed.ExecuteAsync($"reproduction:{attempt}", candidate, ReplayTargetMode.Vulnerable, cancellationToken)
+                : await probe.ExecuteAsync(candidate, ReplayTargetMode.Vulnerable, cancellationToken);
+            attempts.Add(new ReproductionAttemptResult(attempt, observation.Outcome, observation.TraceReferences.ToArray()));
+        }
+        var failures = attempts.Count(item => item.Outcome == InvariantOutcome.Fail);
+        return new ReproductionResult(failures >= 2, failures, attempts);
+    }
 }
 
 public sealed class FailureMinimizer

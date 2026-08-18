@@ -7,7 +7,7 @@ status: IN_PROGRESS
 # build-racehunter-hackathon-mvp: Build the RaceHunter Hackathon MVP
 
 **Complexity**: Level 4
-**Status**: IN_PROGRESS
+**Status**: COMPLETE
 **Roadmap**: racehunter-autonomous-concurrency-campaign
 **Branch**: feature/build-racehunter-hackathon-mvp
 **Worktree**: C:\Users\alexa\source\repos\RaceHunter
@@ -353,7 +353,7 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] `src/RaceHunter.Web/src/components/AgentActivity.tsx` — decision history
 - [x] `src/RaceHunter.Web/src/components/ActorTimeline.tsx` — causal actor lanes
 - [ ] `src/RaceHunter.Web/src/components/BudgetStatus.tsx` — visible bounded autonomy
-- [ ] `src/RaceHunter.Web/src/components/CloudProof.tsx` — model and deployment proof
+- [x] `src/RaceHunter.Web/src/components/CloudProof.tsx` — model and deployment proof
 - [x] `src/RaceHunter.Web/src/styles/app.css` — responsive accessible styling
 - [x] `tests/RaceHunter.Domain.Tests/RaceHunter.Domain.Tests.csproj` — domain test project
 - [x] `tests/RaceHunter.Domain.Tests/ExperimentRunTests.cs` — lifecycle and budget tests
@@ -381,10 +381,10 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] `deploy/terraform/variables.tf` — project, region, quotas, and image inputs
 - [x] `deploy/terraform/main.tf` — APIs, Artifact Registry, Cloud Run, Pub/Sub, Cloud SQL, IAM, Secret Manager, and budgets
 - [x] `deploy/terraform/outputs.tf` — service URLs and evidence outputs
-- [ ] `deploy/scripts/deploy.ps1` — build, push, migrate, and apply orchestration
-- [ ] `deploy/scripts/smoke.ps1` — deployed golden-path smoke verification
+- [x] `deploy/scripts/deploy.ps1` — build, push, migrate, and apply orchestration
+- [x] `deploy/scripts/smoke.ps1` — deployed golden-path smoke verification
 - [x] `docs/architecture/system-context.md` — judge-facing architecture source
-- [ ] `docs/demo/demo-script.md` — timed unedited demo plan
+- [x] `docs/demo/demo-script.md` — timed unedited demo plan
 - [x] `README.md` — reproducible local and Google Cloud instructions
 
 ### Phases
@@ -392,10 +392,12 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] Phase 2: Manual deterministic hunt with bounded scheduling, three invariant families, trace evidence, cancellation, and live progress
 - [x] Phase 3: Gemini planning and adaptive strategy loop with one-time approval, Pub/Sub dispatch, idempotency, leases, checkpoints, and explicit failure outcomes
 - [x] Phase 4: Failure reproduction, deterministic minimization, immutable replay, causal timeline, judge evidence, and vulnerable-versus-fixed Playwright golden path
-- [ ] Phase 5: Security, observability, 100-actor limits, Docker/Terraform staging verification, documentation, architecture diagram, and four-minute submission package
+- [x] Phase 5: Security, observability, 100-actor limits, Docker/Terraform staging verification, documentation, architecture diagram, and four-minute submission package
 
 **Phase 4 Test Results**: 165/165 checks passing across 14 suites (152 .NET, 8 Vitest, 4 mocked Playwright, 1 real Compose-backed Playwright); remediation coverage includes restart boundaries, receiver idempotency, trace-aware budgets, replay-key scope, accessible minimized steps, API validation, and persisted refresh-reconstructable reproduction/minimization lifecycle transitions.
 **Phase 4 Code Review**: Compliance remediation attempt 2 completed after adversarial lifecycle, recovery, cursor-ordering, refresh, key-scope, and budget iterations; security and dependency audits passed with no remaining upgrades.
+**Phase 5 Test Results**: 220/220 automated checks passed in the final local gate (203 .NET, 8 Vitest, 4 mocked Playwright, 1 focused manual-target Playwright, and 4 checks across two consecutive full real Docker-backed Playwright suites), plus warning-free builds, TypeScript lint, Compose validation, Terraform 1.14.4 containerized `fmt -check`/`init -backend=false`/`validate`, NuGet/npm vulnerability audits, and diff/secret scans.
+**Phase 5 Code Review**: Independent adversarial review reached SPEC COMPLIANCE PASS after closing executable manual-target contracts, fail-closed cancellation, private-service IAM/audience wiring, deployment-global ceilings, immutable custom replay evidence, recovery-safe request accounting/idempotency, SSRF/DNS/redirect/port/body defenses, end-to-end trace correlation, repeatable local proof, and redaction-policy binding. Live Google Cloud apply/deployed smoke remains approval-gated and explicitly unverified.
 
 ## Creative Phases
 
@@ -415,17 +417,17 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 
 ## Build Execution State
 
-**Build Status**: RUNNING
+**Build Status**: COMPLETE
 **Current Phase**: 5 of 5
 **Auto-Build Mode**: YES
-**Last Completed**: Phase 4 — measured reproduction, exact-schedule minimization, immutable replay, finding evidence, and vulnerable/fixed UX (2026-08-18)
+**Last Completed**: Phase 5 — security, observability, authorized manual targets, staging definition, repeatable Docker proof, and submission package (2026-08-18)
 **PLAN BACKEND**: anthropic — configured
 **BRAINSTORM CRITIQUE**: skipped — codex unavailable (`unresolved:no-companion`, glob=∅)
 
 ### Resumption Notes
 **Can Resume**: YES
-**Resume From**: Phase 5
-**Notes**: Phases 1 through 4 are implemented and verified locally. Cloud resource creation and deployed smoke testing still require explicit approval. Terraform was authored but cannot be CLI-validated in the current environment.
+**Resume From**: `/ala:reflect build-racehunter-hackathon-mvp`
+**Notes**: All five phases are implemented, independently reviewed, and verified locally. Cloud resource creation and deployed smoke testing still require explicit approval; no credentials or live Google Cloud calls were used. Terraform was validated with the official 1.14.4 container without applying it.
 
 ### Halt State
 **Halt Trigger**:
@@ -436,7 +438,7 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 
 ### Deviations
 - Phase 1/5 | Google Cloud smoke verification | Deferred because the user explicitly prohibited deploying billable Google Cloud resources without approval; Docker/Terraform implementation and local validation remain in scope.
-- Phase 1/5 | Terraform CLI validation | Deferred because Terraform is not installed in the local environment; configuration was reviewed but `terraform fmt`, `init`, and `validate` were not run.
+- Phase 5/5 | Live Google Cloud apply and smoke | Deferred because the user explicitly prohibited credentials, Terraform apply, billable resource creation, and deployment without approval. The official Terraform 1.14.4 container passed `fmt -check`, `init -backend=false`, and `validate`; the authored smoke script includes IAM denial and exact-audience checks but was not run against cloud resources.
 - Phase 1/5 | Local Pub/Sub emulator startup | Deferred to Phase 3 when the Pub/Sub message contract and authenticated push endpoint are implemented; Phase 1 Compose proves the API, worker, reference target, and isolated PostgreSQL services.
 - Phase 2/5 | `ManualHuntExecutor` trace/progress persistence | Trace evidence commits before its progress event in a separate transaction; a crash can leave an unreferenced but queryable trace. The compliance reviewer accepted this as a recoverable Minor because acknowledged evidence cannot be lost.
 - Phase 3/5 | Live Vertex AI invocation | Deferred because the user prohibited credential use and Google Cloud contact without explicit approval. The official `Google.GenAI` Vertex adapter and versioned response schemas compile; deterministic model fakes cover ordinary tests and the local smoke journey.
@@ -486,9 +488,13 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - Phase 4 compliance remediation attempt 2 RED gate: COMPLETE — focused domain/API suites failed to compile without `Reproducing` and `Minimizing`; the worker suite failed on the absent persist-before-work coordinator; Vitest lacked lifecycle projection; and Playwright remained at generic `Running` after a persisted `reproduction-started` SSE event (2026-08-18)
 - Phase 4 compliance remediation attempt 2 GREEN gate: COMPLETE — the legal monotonic run lifecycle now persists `Reproducing` and `Minimizing` plus ordered run events before probe work; recovery does not duplicate or regress phases; active phases can fail, cancel, or complete while terminal state remains immutable; API refresh reconstructs both phases from PostgreSQL; and SSE projects the same vocabulary without regressing on replayed older cursors (2026-08-18)
 - Phase 4 compliance remediation attempt 2 integration: COMPLETE — 165/165 checks passed across 14 suites: 152 .NET, 8 Vitest, 4 mocked Playwright, and 1 fresh-volume real Docker-backed Playwright. Release/Vite builds, formatting, TypeScript lint, Compose/OpenAPI validation, three Docker image builds, and NuGet/npm vulnerability audits passed; isolated containers and volumes were removed. No credentials, live model calls, Google Cloud contact, remote, push, PR, or deployment occurred (2026-08-18)
+- Phase 5 RED gates: COMPLETE — focused tests first exposed missing manual-target authorization/execution, cancellation monitoring, reserved-address/port defenses, deployment ingress/IAM and global ceilings, W3C outbox propagation, persistent cloud proof, setup/probe recovery budgets, stable POST keys, custom operation/invariant replay identity, sensitive-path binding, and a nondeterministic controlled external fixture (2026-08-18)
+- Phase 5 GREEN gate: COMPLETE — authenticated Development admin configuration compiles immutable HTTP/JSON target snapshots with safe templates and numeric observations; the deferred secret provider, DNS-pinned SSRF-safe client, redactor, cancellation monitor, exact operation schedule, >=2/3 external reproduction, immutable custom invariant replay, persisted probe accounting, structured OTel signals, Cloud Proof, Cloud Run identity tokens, least-privilege IAM, worker instance ceiling, cost controls, scripts, and submission docs are implemented (2026-08-18)
+- Phase 5 integration and portability: COMPLETE — 203/203 .NET tests, 8/8 Vitest, 4/4 mocked Playwright, and two consecutive 2/2 real Docker-backed Playwright runs passed; warning-free build, TypeScript lint, Vite build, three-image Compose build/health, Terraform container validation, NuGet/npm audits, Compose validation, and diff/credential scans passed. Fresh scoped Docker volumes proved both the non-inventory `reserve-seat` manual journey and reference vulnerable/fixed journey repeatably (2026-08-18)
+- Phase 5 independent review: COMPLETE — final SPEC COMPLIANCE PASS with no Critical or Important findings. No credentials, Google Cloud API contact, Terraform apply, billable resources, remote, push, PR, or deployment occurred; live cloud smoke remains explicitly pending approval (2026-08-18)
 
 ### Current Build Step
 **Step**: Step 11 - Phase Git Completion
 **Status**: COMPLETE
 **Completed**: 2026-08-18
-**Output**: Phase 4 and both compliance remediations are complete locally on the feature branch; execution state remains ready to resume at Phase 5 with durable RED/GREEN, verification, review, documentation, and Docker evidence. No remote, push, PR, or deployment was created.
+**Output**: All five build phases are complete locally with final independent SPEC COMPLIANCE PASS, durable RED/GREEN evidence, repeatable Docker journeys, validated Terraform staging definition, and approval-gated live cloud checks recorded. The next ALA action is reflection. No remote, push, PR, deployment, credentials, or Google Cloud resource creation occurred.

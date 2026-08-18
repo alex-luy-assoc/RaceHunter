@@ -66,6 +66,8 @@ services:
       PubSub__DeadLetterTopicId: racehunter-dead-letter
       PubSub__UseEmulator: "true"
       Worker__BaseUrl: http://worker:8080
+      ManualTargets__AdminToken: local-admin
+      ManualTargets__DevelopmentHosts__0: reference-target
     ports:
       - "8080:8080"
     healthcheck:
@@ -95,6 +97,9 @@ services:
       PubSub__UseEmulator: "true"
       PubSub__RequireAuthentication: "false"
       ReferenceTarget__DemoControlKey: local-demo-only
+      ManualTargets__DevelopmentHosts__0: reference-target
+      ManualTargets__DevelopmentSecretReference: projects/local-demo/secrets/manual-target-token/versions/latest
+      ManualTargets__DevelopmentSecretValue: local-manual-only
     ports:
       - "8081:8080"
     healthcheck:
@@ -119,6 +124,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__ReferenceTarget: Host=target-postgres;Port=5432;Database=racehunter_target;Username=racehunter;Password=racehunter_local
       DemoControl__Key: local-demo-only
+      ManualTarget__BearerToken: local-manual-only
     ports:
       - "8082:8080"
     healthcheck:

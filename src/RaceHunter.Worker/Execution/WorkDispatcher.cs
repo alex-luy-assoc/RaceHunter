@@ -1,6 +1,7 @@
 using RaceHunter.Application.Agents;
 using RaceHunter.Application.Messaging;
 using RaceHunter.Contracts;
+using RaceHunter.Infrastructure.Observability;
 
 namespace RaceHunter.Worker.Execution;
 
@@ -17,7 +18,8 @@ internal sealed class WorkDispatcher(
     ICampaignWorkHandler campaignRunner,
     IWorkSubjectStore subjects,
     IConfiguration configuration,
-    IServiceScopeFactory scopeFactory)
+    IServiceScopeFactory scopeFactory,
+    ILogger<WorkDispatcher> logger)
 {
     private readonly string owner = $"{Environment.MachineName}:{Guid.NewGuid():N}";
     private readonly TimeSpan leaseDuration = TimeSpan.FromSeconds(configuration.GetValue("Work:LeaseSeconds", 30));
@@ -25,10 +27,29 @@ internal sealed class WorkDispatcher(
         "Work:HeartbeatIntervalMilliseconds",
         (int)Math.Max(1000, TimeSpan.FromSeconds(configuration.GetValue("Work:LeaseSeconds", 30)).TotalMilliseconds / 3)));
 
-    public async Task<WorkDispatchOutcome> DispatchAsync(WorkMessage message, string messageId, CancellationToken cancellationToken)
+    public async Task<WorkDispatchOutcome> DispatchAsync(
+        WorkMessage message,
+        string messageId,
+        CancellationToken cancellationToken,
+        string? traceParent = null,
+        string? traceState = null)
     {
+        var hasParent = System.Diagnostics.ActivityContext.TryParse(traceParent, traceState, out var parent);
+        using var activity = hasParent
+            ? RaceHunterTelemetry.Activities.StartActivity("racehunter.work.consume", System.Diagnostics.ActivityKind.Consumer, parent)
+            : RaceHunterTelemetry.Activities.StartActivity("racehunter.work.consume", System.Diagnostics.ActivityKind.Consumer);
+        activity?.SetTag("racehunter.work.id", message.WorkId.ToString());
+        activity?.SetTag("racehunter.work.kind", message.Kind);
+        activity?.SetTag("racehunter.subject.id", message.SubjectId.ToString());
+        activity?.SetTag("racehunter.correlation.id", message.CorrelationId);
+        RaceHunterTelemetry.WorkMessages.Add(1, new KeyValuePair<string, object?>("outcome", "received"));
+        RaceHunterTelemetry.QueueDelay.Record(Math.Max(0, (DateTime.UtcNow - message.CreatedAtUtc).TotalMilliseconds));
         var acquired = await inbox.TryAcquireAsync(message.WorkId, messageId, owner, DateTime.UtcNow, leaseDuration, cancellationToken);
-        if (acquired.Outcome == WorkAcquireOutcome.Duplicate) return WorkDispatchOutcome.Acknowledged;
+        if (acquired.Outcome == WorkAcquireOutcome.Duplicate)
+        {
+            RaceHunterTelemetry.WorkMessages.Add(1, new KeyValuePair<string, object?>("outcome", "duplicate"));
+            return WorkDispatchOutcome.Acknowledged;
+        }
         if (acquired.Outcome == WorkAcquireOutcome.DeadLettered)
         {
             var kind = Enum.TryParse<WorkKind>(message.Kind, out var parsed) ? parsed : WorkKind.Unknown;
@@ -79,6 +100,8 @@ internal sealed class WorkDispatcher(
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             var failure = Classify(exception, message.Kind);
+            logger.LogError(exception, "Work {WorkId} failed in category {Category} for subject {SubjectId}.",
+                message.WorkId, failure.Category, message.SubjectId);
             var kind = Enum.TryParse<WorkKind>(message.Kind, out var parsed) ? parsed : WorkKind.Unknown;
             var maxRetries = await subjects.GetMaxRetriesAsync(kind, message.SubjectId, CancellationToken.None);
             var outcome = await inbox.RecordFailureAsync(message.WorkId, owner, failure, maxRetries, DateTime.UtcNow, CancellationToken.None);
@@ -128,6 +151,7 @@ internal sealed class WorkDispatcher(
         HttpRequestException => new WorkFailure(WorkFailureCategory.Target, true, false, "target request failed"),
         InvalidDataException => new WorkFailure(WorkFailureCategory.Poison, false, true, "unsupported work contract"),
         OperationCanceledException => new WorkFailure(WorkFailureCategory.Cancellation, false, true, "work cancelled"),
+        DurableCancellationProbeException => new WorkFailure(WorkFailureCategory.Persistence, true, true, "cancellation probe failed"),
         InvalidOperationException => new WorkFailure(WorkFailureCategory.Orchestration, false, kind == "PlanRequested", "worker orchestration failed"),
         _ => new WorkFailure(WorkFailureCategory.Persistence, true, true, "worker persistence failed")
     };

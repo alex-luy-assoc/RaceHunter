@@ -7,6 +7,7 @@ internal sealed class RaceHunterDbContext(DbContextOptions<RaceHunterDbContext> 
     : DbContext(options), IUnitOfWork
 {
     internal DbSet<ProjectRecord> Projects => Set<ProjectRecord>();
+    internal DbSet<TargetSystemRecord> TargetSystems => Set<TargetSystemRecord>();
     internal DbSet<RunRecord> Runs => Set<RunRecord>();
     internal DbSet<RunEventRecord> RunEvents => Set<RunEventRecord>();
     internal DbSet<RunAttemptRecord> RunAttempts => Set<RunAttemptRecord>();
@@ -28,6 +29,7 @@ internal sealed class RaceHunterDbContext(DbContextOptions<RaceHunterDbContext> 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfiguration(new ProjectConfiguration());
+        modelBuilder.ApplyConfiguration(new TargetSystemConfiguration());
         modelBuilder.ApplyConfiguration(new RunConfiguration());
         modelBuilder.ApplyConfiguration(new RunEventConfiguration());
         modelBuilder.ApplyConfiguration(new RunAttemptConfiguration());
@@ -52,6 +54,17 @@ internal sealed class ProjectRecord
 {
     public Guid Id { get; set; }
     public required string Name { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+}
+
+internal sealed class TargetSystemRecord
+{
+    public Guid Id { get; set; }
+    public required string BaseUrl { get; set; }
+    public required string Host { get; set; }
+    public required string CredentialReference { get; set; }
+    public required string OperationPathsJson { get; set; }
+    public required string SensitiveJsonPathsJson { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 }
 
@@ -121,6 +134,7 @@ internal sealed class HuntRecord
     public string? ApprovedPlanVersion { get; set; }
     public string? ApprovalKey { get; set; }
     public Guid? RunId { get; set; }
+    public Guid? ManualTargetId { get; set; }
     public string? FailureOutcome { get; set; }
     public string? FailureDiagnostic { get; set; }
     public DateTime CreatedAtUtc { get; set; }
@@ -145,6 +159,8 @@ internal sealed class OutboxRecord
     public required string Kind { get; set; }
     public Guid SubjectId { get; set; }
     public required string CorrelationId { get; set; }
+    public string? TraceParent { get; set; }
+    public string? TraceState { get; set; }
     public DateTime WorkCreatedAtUtc { get; set; }
     public int PublishAttempts { get; set; }
     public DateTime CreatedAtUtc { get; set; }

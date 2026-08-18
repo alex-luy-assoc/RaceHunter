@@ -27,7 +27,8 @@ public sealed class ReferenceTargetFixture : IAsyncLifetime
             .ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:ReferenceTarget"] = database.GetConnectionString(),
-                ["DemoControl:Key"] = "test-control-key"
+                ["DemoControl:Key"] = "test-control-key",
+                ["ManualTarget:BearerToken"] = "manual-test-token"
             })));
         Client = factory.CreateClient();
     }
@@ -165,6 +166,23 @@ public sealed class InventoryRaceTests(ReferenceTargetFixture fixture) : IClassF
     }
 
     [Fact]
+    public async Task Controlled_manual_endpoint_returns_deterministic_actor_ordinal_observation()
+    {
+        await ResetAsync(1, "vulnerable");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/manual/orders")
+        {
+            Content = JsonContent.Create(new { actorId = "actor-2", quantity = 1, checkpoint = "" })
+        };
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "manual-test-token");
+
+        using var response = await Client.SendAsync(request);
+        var result = await response.Content.ReadFromJsonAsync<ManualOrderResult>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2, result!.ActorOrdinal);
+    }
+
+    [Fact]
     public async Task Durable_order_key_reuses_the_original_result_after_reset_without_reapplying_mutation()
     {
         await ResetAsync(1, "fixed");
@@ -279,4 +297,5 @@ public sealed class InventoryRaceTests(ReferenceTargetFixture fixture) : IClassF
     private sealed record InventoryState(int Available, int SuccessfulOrders, string Mode);
     private sealed record OrderResult(Guid CorrelationId, bool Replayed);
     private sealed record OrderStatus(int Missing);
+    private sealed record ManualOrderResult(int ActorOrdinal);
 }

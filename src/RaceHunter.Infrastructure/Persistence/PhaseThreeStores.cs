@@ -26,6 +26,7 @@ internal sealed class HuntWorkflowStore(RaceHunterDbContext context) : IHuntStor
             MaxModelCalls = hunt.Budget.MaxModelCalls,
             MaxDurationMilliseconds = checked((long)hunt.Budget.MaxDuration.TotalMilliseconds),
             MaxRetries = hunt.Budget.MaxRetries,
+            ManualTargetId = hunt.ManualTargetId,
             CreatedAtUtc = hunt.CreatedAtUtc
         });
         await context.SaveChangesAsync(cancellationToken);
@@ -53,7 +54,7 @@ internal sealed class HuntWorkflowStore(RaceHunterDbContext context) : IHuntStor
 
     public async Task<WorkDispatch?> RequestPlanningAsync(Guid huntId, DateTime nowUtc, CancellationToken cancellationToken)
     {
-        var work = new WorkDispatch("work-v1", Guid.NewGuid(), WorkKind.PlanRequested, huntId, $"hunt:{huntId:N}", EnsureUtc(nowUtc));
+        var work = CreateWorkDispatch(WorkKind.PlanRequested, huntId, $"hunt:{huntId:N}", nowUtc);
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         var updated = await context.Hunts
             .Where(item => item.Id == huntId && item.Status == nameof(HuntStatus.Draft))
@@ -169,7 +170,7 @@ internal sealed class HuntWorkflowStore(RaceHunterDbContext context) : IHuntStor
             MaxRetries = existing.MaxRetries,
             CreatedAtUtc = EnsureUtc(nowUtc)
         });
-        var work = new WorkDispatch("work-v1", Guid.NewGuid(), WorkKind.RunRequested, requestedRunId, $"hunt:{huntId:N}", EnsureUtc(nowUtc));
+        var work = CreateWorkDispatch(WorkKind.RunRequested, requestedRunId, $"hunt:{huntId:N}", nowUtc);
         context.OutboxMessages.Add(ToOutbox(work, nowUtc));
         await context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -187,7 +188,9 @@ internal sealed class HuntWorkflowStore(RaceHunterDbContext context) : IHuntStor
                 Enum.Parse<WorkKind>(item.Kind),
                 item.SubjectId,
                 item.CorrelationId,
-                item.WorkCreatedAtUtc), item.PublishAttempts, item.CreatedAtUtc))
+                item.WorkCreatedAtUtc,
+                item.TraceParent,
+                item.TraceState), item.PublishAttempts, item.CreatedAtUtc))
             .ToArrayAsync(cancellationToken);
 
     public Task MarkPublishedAsync(Guid outboxId, DateTime publishedAtUtc, CancellationToken cancellationToken) =>
@@ -226,7 +229,8 @@ internal sealed class HuntWorkflowStore(RaceHunterDbContext context) : IHuntStor
         item.RunId,
         item.CreatedAtUtc,
         item.FailureOutcome,
-        item.FailureDiagnostic);
+        item.FailureDiagnostic,
+        item.ManualTargetId);
 
     private static OutboxRecord ToOutbox(WorkDispatch work, DateTime nowUtc) => new()
     {
@@ -236,11 +240,24 @@ internal sealed class HuntWorkflowStore(RaceHunterDbContext context) : IHuntStor
         Kind = work.Kind.ToString(),
         SubjectId = work.SubjectId,
         CorrelationId = work.CorrelationId,
+        TraceParent = work.TraceParent,
+        TraceState = work.TraceState,
         WorkCreatedAtUtc = work.CreatedAtUtc,
         CreatedAtUtc = EnsureUtc(nowUtc)
     };
 
     private static DateTime EnsureUtc(DateTime value) => value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
+    private static WorkDispatch CreateWorkDispatch(WorkKind kind, Guid subjectId, string correlationId, DateTime nowUtc) =>
+        new(
+            "work-v1",
+            Guid.NewGuid(),
+            kind,
+            subjectId,
+            correlationId,
+            EnsureUtc(nowUtc),
+            System.Diagnostics.Activity.Current?.Id,
+            System.Diagnostics.Activity.Current?.TraceStateString);
 }
 
 internal sealed class WorkInboxStore(RaceHunterDbContext context) : IWorkInbox

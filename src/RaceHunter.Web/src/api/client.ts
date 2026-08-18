@@ -1,17 +1,34 @@
-import type { ApprovalResponse, FindingResponse, HuntResponse, PlanResponse, ReplayComparisonResponse, RunEvent, RunResponse } from './contracts'
+import type { ApprovalResponse, CloudProofResponse, FindingResponse, HuntResponse, ManualTargetOperation, ManualTargetResponse, PlanResponse, ReplayComparisonResponse, RunEvent, RunResponse } from './contracts'
 
 async function requireOk(response: Response) {
   if (!response.ok) throw new Error((await response.json() as { detail?: string }).detail ?? `Request failed (${response.status})`)
   return response
 }
 
-export async function createInventoryHunt(objective: string): Promise<HuntResponse> {
+export async function createInventoryHunt(objective: string, targetId?: string, adminToken?: string): Promise<HuntResponse> {
   const response = await requireOk(await fetch('/api/hunts', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ objective })
+    headers: { 'Content-Type': 'application/json', ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}) },
+    body: JSON.stringify({ objective, targetId })
   }))
   return response.json() as Promise<HuntResponse>
+}
+
+export async function getCapabilities(): Promise<{ manualTargetsEnabled: boolean }> {
+  const response = await requireOk(await fetch('/api/capabilities'))
+  return response.json() as Promise<{ manualTargetsEnabled: boolean }>
+}
+
+export async function configureManualTarget(input: {
+  baseUrl: string; credentialReference: string; operations: ManualTargetOperation[]; sensitiveJsonPaths: string[]
+}, adminToken: string): Promise<ManualTargetResponse> {
+  const url = new URL(input.baseUrl)
+  const response = await requireOk(await fetch('/api/admin/targets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify({ ...input, allowedHosts: [url.hostname], authorizationAcknowledged: true })
+  }))
+  return response.json() as Promise<ManualTargetResponse>
 }
 
 export async function requestPlan(huntId: string) {
@@ -56,4 +73,9 @@ export async function verifyFix(findingId: string, idempotencyKey: string): Prom
     body: JSON.stringify({ idempotencyKey })
   }))
   return response.json() as Promise<ReplayComparisonResponse>
+}
+
+export async function getCloudProof(runId: string): Promise<CloudProofResponse> {
+  const response = await requireOk(await fetch(`/api/cloud-proof?runId=${encodeURIComponent(runId)}`))
+  return response.json() as Promise<CloudProofResponse>
 }

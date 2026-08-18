@@ -3,6 +3,7 @@ using RaceHunter.Application.Replays;
 using RaceHunter.Contracts;
 using RaceHunter.Domain.Invariants;
 using RaceHunter.Domain.Replays;
+using RaceHunter.Infrastructure.Observability;
 
 namespace RaceHunter.Api.Replay;
 
@@ -14,6 +15,10 @@ internal sealed class WorkerReplayExecution(HttpClient client) : IReplayExecutio
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
+        using var activity = RaceHunterTelemetry.Activities.StartActivity("racehunter.replay.verify-fix", System.Diagnostics.ActivityKind.Client);
+        activity?.SetTag("racehunter.finding.id", artifact.FindingId.ToString());
+        activity?.SetTag("racehunter.replay.artifact_id", artifact.Id.ToString());
+        activity?.SetTag("racehunter.replay.target_mode", targetMode.ToString());
         idempotencyKey = VerifyFix.NormalizeIdempotencyKey(idempotencyKey);
         artifact.VerifyIntegrity();
         using var response = await client.PostAsJsonAsync("/internal/replays", new WorkerReplayRequest(
@@ -39,6 +44,7 @@ internal sealed class WorkerReplayExecution(HttpClient client) : IReplayExecutio
             !string.Equals(item.IdempotencyKey, idempotencyKey, StringComparison.Ordinal) ||
             !string.Equals(item.ArtifactFingerprint, artifact.Fingerprint, StringComparison.Ordinal))
             throw new HttpRequestException("The worker returned replay evidence for a different immutable request.");
+        RaceHunterTelemetry.Replays.Add(1, new KeyValuePair<string, object?>("outcome", item.Outcome));
         return ReplayAttempt.Complete(
             item.Id,
             item.ArtifactId,

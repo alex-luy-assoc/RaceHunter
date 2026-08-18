@@ -12,17 +12,42 @@ using RaceHunter.Domain.Common;
 using RaceHunter.Domain.Invariants;
 using RaceHunter.Gemini;
 using RaceHunter.Infrastructure.Messaging;
+using RaceHunter.Infrastructure.Observability;
 using RaceHunter.Infrastructure.Persistence;
+using RaceHunter.Infrastructure.Security;
 using RaceHunter.Worker.Endpoints;
 using RaceHunter.Worker.Execution;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole(options =>
+{
+    options.UseUtcTimestamp = true;
+    options.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ";
+});
 var connectionString = builder.Configuration.GetConnectionString("RaceHunter")
     ?? throw new InvalidOperationException("ConnectionStrings:RaceHunter is required.");
 builder.Services.AddRaceHunterPersistence(connectionString);
+builder.Services.AddRaceHunterTelemetry(builder.Configuration, "racehunter-worker");
 builder.Services.AddSingleton(new ConcurrencyScheduler(
     builder.Configuration.GetValue("Concurrency:Global", 32),
     builder.Configuration.GetValue("Concurrency:ReferenceTarget", 10)));
+builder.Services.AddSingleton<IDnsResolver, SystemDnsResolver>();
+builder.Services.AddSingleton(provider => new TargetDestinationValidator(
+    provider.GetRequiredService<IDnsResolver>(),
+    builder.Environment.IsDevelopment(),
+    builder.Configuration.GetSection("ManualTargets:DevelopmentHosts").Get<string[]>() ?? []));
+builder.Services.AddSingleton<IManualTargetSafetyPolicy>(provider => provider.GetRequiredService<TargetDestinationValidator>());
+builder.Services.AddSingleton<SafeTargetClientFactory>();
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddSingleton<ISecretProvider>(_ => new DevelopmentSecretProvider(
+        builder.Configuration["ManualTargets:DevelopmentSecretReference"]
+            ?? "projects/local-demo/secrets/manual-target-token/versions/latest",
+        builder.Configuration["ManualTargets:DevelopmentSecretValue"]
+            ?? "local-manual-only"));
+}
+else builder.Services.AddSingleton<ISecretProvider, DeferredGoogleSecretProvider>();
 builder.Services.AddScoped<ManualHuntExecutor>(provider => new ManualHuntExecutor(
     provider.GetRequiredService<ConcurrencyScheduler>(),
     provider.GetRequiredService<IRunStore>(),
@@ -61,19 +86,31 @@ else
 }
 builder.Services.AddScoped<IPlanWorkHandler, PlanWorkHandler>();
 builder.Services.AddScoped<ReferenceCampaignAttemptExecutor>();
+builder.Services.AddScoped<ManualHttpTargetClient>();
+builder.Services.AddSingleton<DurableCancellationMonitor>();
 builder.Services.AddScoped<ICampaignWorkHandler, CampaignRunner>();
 builder.Services.AddScoped<IReplayExecution, ReferenceReplayExecution>();
 builder.Services.AddScoped<WorkDispatcher>();
-builder.Services.AddHttpClient<ReferenceInventoryTargetClient>((services, client) =>
+builder.Services.AddHttpClient<IIdentityTokenSource, MetadataIdentityTokenSource>(client => client.Timeout = TimeSpan.FromSeconds(5))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { UseProxy = false });
+var targetClient = builder.Services.AddHttpClient<ReferenceInventoryTargetClient>((services, client) =>
 {
     var baseUrl = services.GetRequiredService<IConfiguration>()["ReferenceTarget:BaseUrl"]
         ?? throw new InvalidOperationException("ReferenceTarget:BaseUrl is required.");
     client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
     client.Timeout = TimeSpan.FromSeconds(10);
 });
+if (builder.Configuration.GetValue("ReferenceTarget:RequireAuthentication", false))
+{
+    builder.Services.AddTransient(provider => new CloudRunIdentityTokenHandler(
+        builder.Configuration["ReferenceTarget:Audience"] ?? throw new InvalidOperationException("ReferenceTarget:Audience is required when target authentication is enabled."),
+        provider.GetRequiredService<IIdentityTokenSource>()));
+    targetClient.AddHttpMessageHandler<CloudRunIdentityTokenHandler>();
+}
 builder.Services.AddHealthChecks();
 var app = builder.Build();
 await app.Services.ApplyRaceHunterMigrationsAsync();
+app.UseRaceHunterRequestTelemetry();
 app.MapHealthChecks("/healthz");
 app.MapPubSubPushEndpoint();
 app.MapReplayEndpoint();

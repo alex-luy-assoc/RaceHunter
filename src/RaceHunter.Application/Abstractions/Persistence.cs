@@ -97,5 +97,6 @@ public sealed record FindingProbeCheckpoint(
 public interface IFindingProbeCheckpointStore
 {
     Task<FindingProbeCheckpoint?> GetAsync(Guid runId, string probeKey, CancellationToken cancellationToken);
+    Task<int> GetRequestsConsumedAsync(Guid runId, CancellationToken cancellationToken);
     Task SaveAsync(FindingProbeCheckpoint checkpoint, CancellationToken cancellationToken);
 }

@@ -17,6 +17,7 @@ public static class PersistenceRegistration
         services.AddPooledDbContextFactory<RaceHunterDbContext>(options => options.UseNpgsql(connectionString));
         services.AddScoped(provider => provider.GetRequiredService<IDbContextFactory<RaceHunterDbContext>>().CreateDbContext());
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<IManualTargetStore, ManualTargetStore>();
         services.AddScoped<HuntWorkflowStore>();
         services.AddScoped<IHuntStore>(provider => provider.GetRequiredService<HuntWorkflowStore>());
         services.AddScoped<IHuntWorkflowStore>(provider => provider.GetRequiredService<HuntWorkflowStore>());
@@ -38,6 +39,7 @@ public static class PersistenceRegistration
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<RaceHunterDbContext>());
         services.AddScoped<ProjectService>();
         services.AddScoped<GetRun>();
+        services.AddScoped<GetCloudExecutionEvidence>();
         services.AddScoped<CancelRun>();
         services.AddScoped<CreateHunt>();
         services.AddScoped<GeneratePlan>();

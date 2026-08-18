@@ -29,7 +29,11 @@ internal static class PubSubPushEndpoint
         {
             var json = Encoding.UTF8.GetString(Convert.FromBase64String(envelope.Message.Data));
             var message = WorkMessage.Parse(json);
-            var outcome = await dispatcher.DispatchAsync(message, envelope.Message.MessageId, cancellationToken);
+            string? traceParent = null;
+            string? traceState = null;
+            envelope.Message.Attributes?.TryGetValue("traceparent", out traceParent);
+            envelope.Message.Attributes?.TryGetValue("tracestate", out traceState);
+            var outcome = await dispatcher.DispatchAsync(message, envelope.Message.MessageId, cancellationToken, traceParent, traceState);
             return outcome == WorkDispatchOutcome.Acknowledged
                 ? Results.NoContent()
                 : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);

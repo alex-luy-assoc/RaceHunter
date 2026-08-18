@@ -4,6 +4,7 @@ using RaceHunter.Application.Agents;
 using RaceHunter.Application.Messaging;
 using RaceHunter.Concurrency.Minimization;
 using RaceHunter.Concurrency.Replay;
+using RaceHunter.Concurrency.Scheduling;
 using RaceHunter.Domain.Budgets;
 using RaceHunter.Domain.Invariants;
 using RaceHunter.Domain.Replays;
@@ -23,13 +24,78 @@ public sealed class CampaignFindingTests
             InvariantOutcome.Fail,
             ["trace:1", "trace:2", "trace:3"],
             3,
-            [new DeterministicReplayStep(1, 3), new DeterministicReplayStep(2, 17), new DeterministicReplayStep(3, 8)]);
+            [new DeterministicReplayStep(1, 3, "reserve"), new DeterministicReplayStep(2, 17, "reserve"), new DeterministicReplayStep(3, 8, "confirm")]);
 
         var candidate = CampaignRunner.CreateReplayCandidate(settings, failed, 1729);
 
         Assert.Equal("seeded-jitter", candidate.Strategy);
         Assert.Equal(1729, candidate.Seed);
         Assert.Equal([(1, 3), (2, 17), (3, 8)], candidate.Steps.Select(item => (item.ActorId, item.OffsetMilliseconds)));
+        Assert.Equal(["reserve", "reserve", "confirm"], candidate.Steps.Select(item => item.OperationId));
+    }
+
+    [Fact]
+    public void Manual_replay_snapshot_preserves_the_planned_custom_invariant()
+    {
+        var invariant = new PlannedInvariant("numeric-boundary", "reservation-count", 7);
+        var target = new RaceHunter.Application.Hunts.ManualTargetSnapshot(
+            Guid.NewGuid(), new Uri("https://api.example.test"), "api.example.test",
+            "projects/demo/secrets/token/versions/latest",
+            [new RaceHunter.Application.Hunts.ManualTargetOperation("reserve", "POST", "/reservations", "{}",
+                new Dictionary<string, string> { ["reservation-count"] = "$.count" })], [], DateTime.UtcNow);
+
+        var json = ManualReplaySnapshot.Serialize(target, invariant);
+        var compiled = Assert.IsType<NumericBoundaryInvariant>(ReferenceReplayExecution.CompileManualInvariant(json));
+
+        Assert.Equal("reservation-count", compiled.Metric);
+        Assert.Equal(7, compiled.Maximum);
+    }
+
+    [Fact]
+    public void Stable_campaign_execution_key_uses_the_durable_iteration_not_attempt_identity()
+    {
+        var runId = Guid.NewGuid();
+        Assert.Equal(CampaignRunner.CreateAttemptExecutionKey(runId, 2), CampaignRunner.CreateAttemptExecutionKey(runId, 2));
+        Assert.NotEqual(CampaignRunner.CreateAttemptExecutionKey(runId, 1), CampaignRunner.CreateAttemptExecutionKey(runId, 2));
+    }
+
+    [Fact]
+    public void Manual_replay_rejects_a_changed_sensitive_data_policy()
+    {
+        var target = new RaceHunter.Application.Hunts.ManualTargetSnapshot(
+            Guid.NewGuid(), new Uri("https://api.example.test"), "api.example.test",
+            "projects/demo/secrets/token/versions/latest",
+            [new RaceHunter.Application.Hunts.ManualTargetOperation("reserve", "POST", "/reservations", "{}",
+                new Dictionary<string, string> { ["reservation-count"] = "$.count" })], ["$.token"], DateTime.UtcNow);
+        var snapshot = ManualReplaySnapshot.Deserialize(ManualReplaySnapshot.Serialize(target,
+            new PlannedInvariant("numeric-boundary", "reservation-count", 7)));
+        var changed = target with { SensitiveJsonPaths = ["$.different-secret"] };
+
+        Assert.Throws<InvalidDataException>(() => ReferenceReplayExecution.EnsureSnapshotMatches(changed, snapshot));
+    }
+
+    [Fact]
+    public void Manual_plan_keeps_duplicate_actor_operation_assignments_in_exact_order()
+    {
+        var schedule = new SimultaneousStartStrategy().Create(3, 42);
+        var mapped = ReferenceCampaignAttemptExecutor.ApplyManualOperations(schedule, ["reserve", "reserve", "confirm"]);
+
+        Assert.Equal(["reserve", "reserve", "confirm"], mapped.Actors.Select(actor => actor.OperationKey));
+    }
+
+    [Fact]
+    public async Task Development_planner_respects_custom_operations_metric_and_non_default_maximum()
+    {
+        var request = new ModelRequest("fake", "plan-v1", "plan-v1",
+            "prompt\nobjective=Reservation maximum is 7\noperations=reserve:POST:/reservations,confirm:POST:/confirm\ninvariantTypes=numeric-boundary\nobservationMetrics=reservation-count\nstrategies=checkpoint-interleaving",
+            "{}", false);
+
+        var response = await new DevelopmentModelClient().GenerateAsync(request, CancellationToken.None);
+
+        Assert.Contains("\"operationId\":\"reserve\"", response.Json, StringComparison.Ordinal);
+        Assert.Contains("\"operationId\":\"confirm\"", response.Json, StringComparison.Ordinal);
+        Assert.Contains("\"metric\":\"reservation-count\"", response.Json, StringComparison.Ordinal);
+        Assert.Contains("\"maximum\":7", response.Json, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -95,7 +161,10 @@ public sealed class CampaignFindingTests
 
         await Assert.ThrowsAsync<IOException>(() => new FailureMinimizer().MinimizeAsync(original, first, CancellationToken.None));
         store.FailAfterSaveKey = null;
-        var resumed = new DurableFindingReplayProbe(runId, 20 - store.RequestsConsumed, store, target.CountMissingAsync, target.ExecuteAsync);
+        var resumed = new DurableFindingReplayProbe(runId,
+            CampaignRunner.RemainingFindingRequests(20, 0,
+                await store.GetRequestsConsumedAsync(runId, CancellationToken.None)),
+            store, target.CountMissingAsync, target.ExecuteAsync);
         var result = await new FailureMinimizer().MinimizeAsync(original, resumed, CancellationToken.None);
 
         Assert.Equal(2, result.Candidate.ActorCount);
@@ -217,6 +286,9 @@ public sealed class CampaignFindingTests
 
         public Task<FindingProbeCheckpoint?> GetAsync(Guid runId, string probeKey, CancellationToken cancellationToken) =>
             Task.FromResult(Items.GetValueOrDefault(probeKey));
+
+        public Task<int> GetRequestsConsumedAsync(Guid runId, CancellationToken cancellationToken) =>
+            Task.FromResult(Items.Values.Where(item => item.RunId == runId).Sum(item => item.RequestsConsumed));
 
         public Task SaveAsync(FindingProbeCheckpoint checkpoint, CancellationToken cancellationToken)
         {

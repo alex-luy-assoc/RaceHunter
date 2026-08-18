@@ -3,10 +3,15 @@ using RaceHunter.Application.Agents;
 using RaceHunter.Application.Hunts;
 using RaceHunter.Application.Messaging;
 using RaceHunter.Domain.Budgets;
+using RaceHunter.Infrastructure.Observability;
 
 namespace RaceHunter.Worker.Execution;
 
-internal sealed class PlanWorkHandler(IHuntStore hunts, IScenarioPlanner planner, IWorkInbox inbox) : IPlanWorkHandler
+internal sealed class PlanWorkHandler(
+    IHuntStore hunts,
+    IManualTargetStore manualTargets,
+    IScenarioPlanner planner,
+    IWorkInbox inbox) : IPlanWorkHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -48,16 +53,22 @@ internal sealed class PlanWorkHandler(IHuntStore hunts, IScenarioPlanner planner
             hunt.Budget.MaxDuration,
             hunt.Budget.MaxRetries);
         ScenarioPlan plan;
+        using var modelActivity = RaceHunterTelemetry.Activities.StartActivity("racehunter.model.plan");
+        modelActivity?.SetTag("racehunter.hunt.id", hunt.Id.ToString());
+        modelActivity?.SetTag("racehunter.model.id", "gemini-3.5-flash");
         try
         {
+            var targetContract = await GetTargetContractAsync(hunt, cancellationToken);
             plan = await planner.PlanAsync(new PlanningContext(
                 hunt.Id,
                 hunt.Objective,
-                [new AllowedTargetOperation("place-order", "POST", "/api/orders")],
-                ["numeric-boundary", "cardinality", "cross-observation"],
+                targetContract.Operations,
+                targetContract.InvariantTypes,
                 ["simultaneous-start", "seeded-jitter", "checkpoint-interleaving"],
                 remainingBudget,
-                ["successful-orders", "inventory-capacity", "order-correlation"]), cancellationToken);
+                targetContract.ObservationMetrics), cancellationToken);
+            modelActivity?.SetTag("racehunter.model.invocation_id", plan.ModelInvocationId);
+            modelActivity?.SetTag("racehunter.model.schema", plan.SchemaVersion);
         }
         catch (ModelOutputException exception)
         {
@@ -84,6 +95,32 @@ internal sealed class PlanWorkHandler(IHuntStore hunts, IScenarioPlanner planner
         await SaveUsageAsync(workId, leaseOwner, new PlanningCheckpointState(totalUsage, null, null, plan), cancellationToken);
         await hunts.SavePlanAsync(hunt.Id, plan, DateTime.UtcNow, cancellationToken);
     }
+
+    private async Task<TargetPlanningContract> GetTargetContractAsync(
+        HuntSnapshot hunt,
+        CancellationToken cancellationToken)
+    {
+        if (!hunt.ManualTargetId.HasValue)
+            return new TargetPlanningContract(
+                [new AllowedTargetOperation("place-order", "POST", "/api/orders")],
+                ["numeric-boundary", "cardinality", "cross-observation"],
+                ["successful-orders", "inventory-capacity", "order-correlation"]);
+        var target = await manualTargets.GetAsync(hunt.ManualTargetId.Value, cancellationToken)
+            ?? throw new InvalidOperationException("The hunt's authorized manual target no longer exists.");
+        var executable = target.Operations.Where(operation => !operation.IsSetup).ToArray();
+        var metrics = executable.SelectMany(operation => operation.ObservationPaths.Keys)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        string[] invariantTypes = ["numeric-boundary"];
+        return new TargetPlanningContract(
+            executable.Select(operation => new AllowedTargetOperation(operation.Id, operation.Method, operation.Path)).ToArray(),
+            invariantTypes,
+            metrics);
+    }
+
+    private sealed record TargetPlanningContract(
+        IReadOnlyList<AllowedTargetOperation> Operations,
+        IReadOnlyList<string> InvariantTypes,
+        IReadOnlyList<string> ObservationMetrics);
 
     private async Task SaveUsageAsync(
         Guid workId,

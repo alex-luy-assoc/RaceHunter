@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using RaceHunter.Application.Agents;
 using RaceHunter.Application.Hunts;
 using RaceHunter.Application.Messaging;
@@ -67,7 +68,7 @@ public sealed class WorkDispatcherTests
         var hunt = new HuntSnapshot(Guid.NewGuid(), "test", ExperimentBudget.PublicSandbox, HuntStatus.Planning, null, null, null, DateTime.UtcNow);
         var store = new FakeHuntStore(hunt);
         var inbox = new PlanningInbox();
-        var handler = new PlanWorkHandler(store, new TransientPlanner(), inbox);
+        var handler = new PlanWorkHandler(store, new EmptyManualTargetStore(), new TransientPlanner(), inbox);
 
         var error = await Assert.ThrowsAsync<ModelOutputException>(() =>
             handler.ExecuteAsync(hunt.Id, Guid.NewGuid(), "worker-a", null, CancellationToken.None));
@@ -84,7 +85,7 @@ public sealed class WorkDispatcherTests
         var store = new FakeHuntStore(hunt);
         var inbox = new PlanningInbox();
         var model = new AlwaysTransientModelClient();
-        var handler = new PlanWorkHandler(store, new ScenarioPlanner(model), inbox);
+        var handler = new PlanWorkHandler(store, new EmptyManualTargetStore(), new ScenarioPlanner(model), inbox);
         var workId = Guid.NewGuid();
 
         await Assert.ThrowsAsync<ModelOutputException>(() =>
@@ -96,6 +97,34 @@ public sealed class WorkDispatcherTests
         Assert.Equal(1, store.PlanningFailedCalls);
         Assert.Equal(ModelOutcome.BudgetExhausted, store.LastFailureOutcome);
         Assert.Contains("\"modelCallsConsumed\":1", inbox.LastCheckpoint!.StateJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Manual_target_hunt_planning_exposes_only_its_immutable_allowlisted_operations()
+    {
+        var targetId = Guid.NewGuid();
+        var hunt = new HuntSnapshot(Guid.NewGuid(), "manual", ExperimentBudget.PublicSandbox, HuntStatus.Planning, null, null, null, DateTime.UtcNow, ManualTargetId: targetId);
+        var target = new ManualTargetSnapshot(
+            targetId,
+            new Uri("https://api.example.test"),
+            "api.example.test",
+            "projects/demo-project/secrets/token/versions/latest",
+            [
+                new ManualTargetOperation("place-order", "POST", "/orders", "{}", new Dictionary<string, string> { ["successful-orders"] = "$.successfulOrders" }),
+                new ManualTargetOperation("reserve", "POST", "/reservations", "{}", new Dictionary<string, string> { ["reservation-count"] = "$.reservationCount" })
+            ],
+            ["$.token"],
+            DateTime.UtcNow);
+        var planner = new CapturingPlanner();
+        var handler = new PlanWorkHandler(new FakeHuntStore(hunt), new SingleManualTargetStore(target), planner, new PlanningInbox());
+
+        await handler.ExecuteAsync(hunt.Id, Guid.NewGuid(), "worker-a", null, CancellationToken.None);
+
+        Assert.Equal(["/orders", "/reservations"], planner.Context!.AllowedOperations.Select(item => item.Path));
+        Assert.All(planner.Context.AllowedOperations, item => Assert.Equal("POST", item.Method));
+        Assert.Equal(["reservation-count", "successful-orders"],
+            planner.Context.AllowedObservationMetrics!.Order(StringComparer.Ordinal));
+        Assert.Equal(["numeric-boundary"], planner.Context.AllowedInvariantTypes);
     }
 
     private static WorkDispatcher CreateDispatcher(
@@ -117,7 +146,8 @@ public sealed class WorkDispatcherTests
             new FakeCampaignHandler(),
             subjects ?? new FakeSubjectStore(),
             configuration,
-            services.GetRequiredService<IServiceScopeFactory>());
+            services.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<WorkDispatcher>.Instance);
     }
 
     private static WorkMessage Message(string kind) => WorkMessage.Create(kind, Guid.NewGuid(), "test", DateTime.UtcNow);
@@ -188,6 +218,37 @@ public sealed class WorkDispatcherTests
         public Task<WorkDispatch?> RequestPlanningAsync(Guid huntId, DateTime nowUtc, CancellationToken cancellationToken) => Task.FromResult<WorkDispatch?>(null);
         public Task SavePlanAsync(Guid huntId, ScenarioPlan plan, DateTime nowUtc, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task MarkPlanningFailedAsync(Guid huntId, ModelOutcome outcome, string sanitizedDiagnostic, DateTime nowUtc, CancellationToken cancellationToken) { PlanningFailedCalls++; LastFailureOutcome = outcome; return Task.CompletedTask; }
+    }
+
+    private sealed class EmptyManualTargetStore : IManualTargetStore
+    {
+        public Task AddAsync(ManualTargetSnapshot target, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<ManualTargetSnapshot?> GetAsync(Guid id, CancellationToken cancellationToken) => Task.FromResult<ManualTargetSnapshot?>(null);
+        public Task<ManualTargetSnapshot?> GetByBaseUriAsync(Uri baseUri, CancellationToken cancellationToken) => Task.FromResult<ManualTargetSnapshot?>(null);
+    }
+
+    private sealed class SingleManualTargetStore(ManualTargetSnapshot target) : IManualTargetStore
+    {
+        public Task AddAsync(ManualTargetSnapshot value, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<ManualTargetSnapshot?> GetAsync(Guid id, CancellationToken cancellationToken) => Task.FromResult<ManualTargetSnapshot?>(id == target.Id ? target : null);
+        public Task<ManualTargetSnapshot?> GetByBaseUriAsync(Uri baseUri, CancellationToken cancellationToken) => Task.FromResult<ManualTargetSnapshot?>(baseUri == target.BaseUri ? target : null);
+    }
+
+    private sealed class CapturingPlanner : IScenarioPlanner
+    {
+        public PlanningContext? Context { get; private set; }
+        public Task<ScenarioPlan> PlanAsync(PlanningContext context, CancellationToken cancellationToken)
+        {
+            Context = context;
+            var operation = context.AllowedOperations[0].Id;
+            return Task.FromResult(new ScenarioPlan(
+                "plan-v1", "plan-v1", "plan-v1", "test-model", "invocation-1",
+                [new PlannedActor("actor-1", operation), new PlannedActor("actor-2", operation)],
+                new PlannedInvariant("numeric-boundary", "successful-orders", 1),
+                new PlannedStrategy("simultaneous-start", 2, 7),
+                1,
+                "{}"));
+        }
     }
 
     private sealed class PlanningInbox : IWorkInbox

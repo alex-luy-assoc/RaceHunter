@@ -147,6 +147,16 @@ Verified Phase 4 capabilities and local gates:
 
 Phase 5 retains Cloud Run private-service IAM and API-to-worker ID-token authentication, OpenTelemetry and judge-facing Cloud proof, hardening/performance checks, staging/deployment, and live Google Cloud smoke. No Phase 4 local gate requires Google credentials or billable resources.
 
+Verified Phase 5 capabilities and local gates:
+
+- Public hunt creation enforces the 10 actor / 10 concurrent / 40 request / 5 Gemini / 90 second / 1 retry sandbox ceiling at the API boundary. A fixed-time local/admin bearer check unlocks the bounded 100-logical-actor engine and the otherwise hidden manual-target configuration route.
+- Manual targets persist only an authorization acknowledgement, exact HTTPS host and operations, Secret Manager version reference, and redaction paths. DNS validation rejects metadata, loopback, private, link-local, multicast, and mixed answers; the safe client disables automatic redirects and pins connections to a freshly validated public address. Authorization, cookies, API keys, demo-control keys, and configured JSON paths are redactable before evidence or model use.
+- API, worker, and reference target emit JSON logs plus OpenTelemetry HTTP/runtime traces and metrics. Pub/Sub carries W3C `traceparent`; durable correlation IDs and spans cover work, run, attempt, actor, step, request, model invocation, finding, and replay. Metrics include queue delay, duplicate work, limiter occupancy/wait, target latency, model calls, invariant outcomes, findings, replays, and cancellation persistence latency. OTLP export is disabled unless an explicit endpoint is configured.
+- Cloud Run IAM exposes only the API publicly. Pub/Sub and API invoke the private worker with exact-audience OIDC tokens; the worker invokes the private reference target the same way. Metadata identity tokens bypass proxies, are audience-bound, cached only until near expiry, and never attach to a different destination.
+- Terraform keeps the approved three application images, Pub/Sub/DLQ, Cloud SQL, Secret Manager, workload identities, observability APIs, deletion protection, hard Cloud Run instance ceilings, and optional 50/90/100% budget alerts. `hashicorp/terraform:1.14.4` passed `fmt -check`, `init -backend=false`, and `validate` with no credentials or state backend.
+- The final local baseline is 177 .NET tests, 8 Vitest tests, 4 mocked Playwright tests, and 1 fresh-volume real Docker-backed Playwright test. The real journey completed in 6.3 seconds and rendered persisted 3/3 reproduction, two-actor minimization, vulnerable/fixed replay, refresh recovery, and local Cloud Proof.
+- The deploy and staging-smoke scripts require separate explicit approval switches. Image inputs must be immutable digests, and deployed smoke enforces the under-four-minute finding/fix proof. No Terraform apply, Google Cloud API contact, credential use, remote, push, PR, or deployment occurred during Phase 5.
+
 ## Open Technical Decisions
 
 Choose the smallest option that preserves the golden-path demo and approved boundaries:
@@ -157,5 +167,5 @@ Choose the smallest option that preserves the golden-path demo and approved boun
 4. **Resolved:** React assets are hosted by the public API image.
 5. Low-friction authentication for the hosted judging demo.
 6. Exact reference-target observation JSON paths.
-7. **Resolved for the reference target:** exactly three failures in three equivalent attempts are required before minimization; external-target confidence remains governed by the product brief.
+7. **Resolved by target class:** the reference target requires exactly three failures in three attempts; an authorized external target requires at least two failures in three equivalent attempts before two-actor minimization and immutable-snapshot replay.
 8. **Resolved:** maintain a small checked-in OpenAPI 3.1 subset for durable run status, finding evidence, and Verify Fix.

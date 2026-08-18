@@ -3,6 +3,7 @@ using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 using RaceHunter.Application.Messaging;
 using RaceHunter.Contracts;
+using RaceHunter.Infrastructure.Observability;
 
 namespace RaceHunter.Infrastructure.Messaging;
 
@@ -10,13 +11,24 @@ public sealed class PubSubWorkPublisher(PublisherClient publisher, PublisherClie
 {
     public async Task PublishAsync(WorkDispatch message, CancellationToken cancellationToken)
     {
+        var hasParent = System.Diagnostics.ActivityContext.TryParse(message.TraceParent, message.TraceState, out var parent);
+        using var activity = hasParent
+            ? RaceHunterTelemetry.Activities.StartActivity("racehunter.work.publish", System.Diagnostics.ActivityKind.Producer, parent)
+            : RaceHunterTelemetry.Activities.StartActivity("racehunter.work.publish", System.Diagnostics.ActivityKind.Producer);
+        activity?.SetTag("racehunter.work.id", message.WorkId.ToString());
+        activity?.SetTag("racehunter.work.kind", message.Kind.ToString());
+        activity?.SetTag("racehunter.correlation.id", message.CorrelationId);
         var contract = ToContract(message);
-        await publisher.PublishAsync(new PubsubMessage
+        var pubsubMessage = new PubsubMessage
         {
             Data = ByteString.CopyFromUtf8(contract.Serialize()),
             Attributes = { ["workId"] = message.WorkId.ToString("N"), ["kind"] = message.Kind.ToString(), ["version"] = message.Version }
-        });
+        };
+        if (activity?.Id is { } traceParent) pubsubMessage.Attributes["traceparent"] = traceParent;
+        if (!string.IsNullOrWhiteSpace(activity?.TraceStateString)) pubsubMessage.Attributes["tracestate"] = activity.TraceStateString;
+        await publisher.PublishAsync(pubsubMessage);
         cancellationToken.ThrowIfCancellationRequested();
+        RaceHunterTelemetry.WorkMessages.Add(1, new KeyValuePair<string, object?>("outcome", "published"));
     }
 
     public async Task PublishDeadLetterAsync(WorkDispatch message, WorkFailure failure, CancellationToken cancellationToken)

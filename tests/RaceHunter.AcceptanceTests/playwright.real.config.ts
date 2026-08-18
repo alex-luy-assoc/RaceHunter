@@ -2,8 +2,9 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: '.',
-  testMatch: /real-backend\.spec\.ts/,
+  testMatch: /(?:real-backend|manual-target\.real)\.spec\.ts/,
   fullyParallel: false,
+  workers: 1,
   retries: 0,
   reporter: 'list',
   timeout: 120_000,

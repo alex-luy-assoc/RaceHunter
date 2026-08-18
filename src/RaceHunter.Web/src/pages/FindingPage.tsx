@@ -3,6 +3,7 @@ import { getFinding, verifyFix } from '../api/client'
 import type { FindingResponse } from '../api/contracts'
 import { ActorTimeline } from '../components/ActorTimeline'
 import { AgentActivity } from '../components/AgentActivity'
+import { CloudProof } from '../components/CloudProof'
 import { buildReplayComparison, findingHeadline } from './findingView'
 
 export function FindingPage({ findingId }: { findingId: string }) {
@@ -43,6 +44,7 @@ export function FindingPage({ findingId }: { findingId: string }) {
 
   if (!finding) return <main><p className="eyebrow">FINDING &amp; REPLAY</p>{error ? <p role="alert">{error}</p> : <p>Loading persisted finding evidence…</p>}</main>
   const comparison = buildReplayComparison(finding)
+  const external = finding.agentInterpretation.includes('external-target')
   return <main>
     <p className="eyebrow">FINDING &amp; REPLAY</p>
     <h1 className="page-title">{findingHeadline(finding)}</h1>
@@ -66,18 +68,19 @@ export function FindingPage({ findingId }: { findingId: string }) {
           </li>)}
         </ol>
       </div>
-      <button type="button" onClick={replay} disabled={busy}>{busy ? 'Verifying fix…' : 'Verify Fix'}</button>
+      <button type="button" onClick={replay} disabled={busy}>{busy ? 'Replaying…' : external ? 'Replay Authorized Target' : 'Verify Fix'}</button>
     </section>
     <section aria-label="Replay comparison">
       <h2>Replay comparison</h2>
       <div className="comparison">
         <p><strong>Vulnerable failed invariant</strong><span>{comparison.vulnerable}</span></p>
-        <p><strong>{comparison.fixed === 'Pass' ? 'Fixed passed invariant' : comparison.fixed ? 'Fixed failed invariant' : 'Fixed invariant outcome'}</strong><span>{comparison.fixed ?? 'Not yet verified'}</span></p>
+        <p><strong>{external ? 'Authorized target replay' : comparison.fixed === 'Pass' ? 'Fixed passed invariant' : comparison.fixed ? 'Fixed failed invariant' : 'Fixed invariant outcome'}</strong><span>{comparison.fixed ?? 'Not yet verified'}</span></p>
       </div>
       <p>{comparison.sameArtifact ? 'Both results use the same immutable artifact.' : 'Awaiting a matching fixed-target artifact fingerprint.'}</p>
     </section>
     <ActorTimeline finding={finding} />
     <AgentActivity finding={finding} />
+    <CloudProof runId={finding.runId} />
     <section aria-labelledby="agent-interpretation"><h2 id="agent-interpretation">Gemini interpretation</h2><p>{finding.agentInterpretation}</p></section>
   </main>
 }

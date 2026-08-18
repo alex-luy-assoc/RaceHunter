@@ -2,6 +2,7 @@ using RaceHunter.Api.Streaming;
 using RaceHunter.Application.Runs;
 using RaceHunter.Contracts;
 using RaceHunter.Domain.Runs;
+using RaceHunter.Infrastructure.Observability;
 
 namespace RaceHunter.Api.Endpoints;
 
@@ -35,7 +36,13 @@ internal static class RunEndpoints
         });
         endpoints.MapPost("/api/runs/{id:guid}/cancel", async (Guid id, CancelRun command, CancellationToken cancellationToken) =>
         {
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            using var activity = RaceHunterTelemetry.Activities.StartActivity("racehunter.run.cancel");
+            activity?.SetTag("racehunter.run.id", id.ToString());
             var run = await command.ExecuteAsync(id, cancellationToken);
+            RaceHunterTelemetry.CancellationLatency.Record(
+                System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                new KeyValuePair<string, object?>("outcome", run is null ? "not-found" : "persisted"));
             return run is null ? Results.NotFound() : Results.Accepted($"/api/runs/{id}");
         });
         return endpoints;

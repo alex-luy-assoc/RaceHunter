@@ -20,6 +20,19 @@ internal sealed class RaceHunterDbContextModelSnapshot : ModelSnapshot
             entity.HasIndex("Name").IsUnique();
             entity.ToTable("projects");
         });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.TargetSystemRecord", entity =>
+        {
+            entity.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
+            entity.Property<string>("BaseUrl").IsRequired().HasMaxLength(2048).HasColumnType("character varying(2048)").HasColumnName("base_url");
+            entity.Property<DateTime>("CreatedAtUtc").HasColumnType("timestamp with time zone").HasColumnName("created_at_utc");
+            entity.Property<string>("CredentialReference").IsRequired().HasMaxLength(500).HasColumnType("character varying(500)").HasColumnName("credential_reference");
+            entity.Property<string>("Host").IsRequired().HasMaxLength(253).HasColumnType("character varying(253)").HasColumnName("host");
+            entity.Property<string>("OperationPathsJson").IsRequired().HasColumnType("jsonb").HasColumnName("operation_paths_json");
+            entity.Property<string>("SensitiveJsonPathsJson").IsRequired().HasColumnType("jsonb").HasColumnName("sensitive_json_paths_json");
+            entity.HasKey("Id");
+            entity.HasIndex("BaseUrl").IsUnique();
+            entity.ToTable("target_systems");
+        });
         modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.RunRecord", entity =>
         {
             entity.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
@@ -88,6 +101,7 @@ internal sealed class RaceHunterDbContextModelSnapshot : ModelSnapshot
             entity.Property<int>("MaxModelCalls").HasColumnType("integer").HasColumnName("max_model_calls");
             entity.Property<int>("MaxRequests").HasColumnType("integer").HasColumnName("max_requests");
             entity.Property<int>("MaxRetries").HasColumnType("integer").HasColumnName("max_retries");
+            entity.Property<Guid?>("ManualTargetId").HasColumnType("uuid").HasColumnName("manual_target_id");
             entity.Property<string>("Objective").IsRequired().HasMaxLength(1000).HasColumnType("character varying(1000)").HasColumnName("objective");
             entity.Property<string>("PlanJson").HasColumnType("jsonb").HasColumnName("plan_json");
             entity.Property<string>("PlanVersion").HasMaxLength(64).HasColumnType("character varying(64)").HasColumnName("plan_version");
@@ -96,6 +110,7 @@ internal sealed class RaceHunterDbContextModelSnapshot : ModelSnapshot
             entity.HasKey("Id");
             entity.HasIndex("ApprovalKey").IsUnique();
             entity.HasIndex("RunId").IsUnique();
+            entity.HasIndex("ManualTargetId");
             entity.ToTable("experiments");
         });
         modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.HuntEventRecord", entity =>
@@ -117,6 +132,8 @@ internal sealed class RaceHunterDbContextModelSnapshot : ModelSnapshot
             entity.Property<DateTime?>("PublishedAtUtc").HasColumnType("timestamp with time zone").HasColumnName("published_at_utc");
             entity.Property<int>("PublishAttempts").HasColumnType("integer").HasColumnName("publish_attempts");
             entity.Property<Guid>("SubjectId").HasColumnType("uuid").HasColumnName("subject_id");
+            entity.Property<string>("TraceParent").HasMaxLength(128).HasColumnType("character varying(128)").HasColumnName("trace_parent");
+            entity.Property<string>("TraceState").HasMaxLength(512).HasColumnType("character varying(512)").HasColumnName("trace_state");
             entity.Property<string>("Version").IsRequired().HasMaxLength(32).HasColumnType("character varying(32)").HasColumnName("version");
             entity.Property<DateTime>("WorkCreatedAtUtc").HasColumnType("timestamp with time zone").HasColumnName("work_created_at_utc");
             entity.Property<Guid>("WorkId").HasColumnType("uuid").HasColumnName("work_id");
@@ -223,7 +240,7 @@ internal sealed class RaceHunterDbContextModelSnapshot : ModelSnapshot
             entity.Property<string>("ScenarioVersionId").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)").HasColumnName("scenario_version_id");
             entity.Property<int>("Seed").HasColumnType("integer").HasColumnName("seed");
             entity.Property<string>("Strategy").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)").HasColumnName("strategy");
-            entity.Property<string>("TargetSnapshot").IsRequired().HasMaxLength(500).HasColumnType("character varying(500)").HasColumnName("target_snapshot");
+            entity.Property<string>("TargetSnapshot").IsRequired().HasColumnType("text").HasColumnName("target_snapshot");
             entity.HasKey("Id");
             entity.HasIndex("FindingId").IsUnique();
             entity.HasIndex("Fingerprint").IsUnique();
@@ -367,7 +384,14 @@ internal sealed class RaceHunterDbContextModelSnapshot : ModelSnapshot
                 .IsRequired();
             entity.Navigation("Artifact");
         });
-        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.HuntRecord", entity => entity.Navigation("Events"));
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.HuntRecord", entity =>
+        {
+            entity.HasOne("RaceHunter.Infrastructure.Persistence.TargetSystemRecord", null)
+                .WithMany()
+                .HasForeignKey("ManualTargetId")
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.Navigation("Events");
+        });
         modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.RunRecord", entity => entity.Navigation("Events"));
         modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.FindingRecord", entity => entity.Navigation("Reproductions"));
         modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.ReplayArtifactRecord", entity =>

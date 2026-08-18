@@ -248,6 +248,11 @@ internal sealed class FindingProbeCheckpointStore(RaceHunterDbContext context) :
             item.RequestsConsumed, item.CompletedAtUtc);
     }
 
+    public async Task<int> GetRequestsConsumedAsync(Guid runId, CancellationToken cancellationToken) =>
+        await context.FindingProbeCheckpoints.AsNoTracking()
+            .Where(item => item.RunId == runId)
+            .SumAsync(item => item.RequestsConsumed, cancellationToken);
+
     public async Task SaveAsync(FindingProbeCheckpoint checkpoint, CancellationToken cancellationToken)
     {
         context.FindingProbeCheckpoints.Add(new FindingProbeCheckpointRecord

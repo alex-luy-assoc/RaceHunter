@@ -81,10 +81,14 @@ public sealed class GetFinding(
             .ToArray();
         var activity = await agentIterations.GetIterationsByRunAsync(finding.RunId, cancellationToken);
         var attempts = await replays.GetAttemptsAsync(artifact.Id, cancellationToken);
+        var external = finding.AgentInterpretation.Contains("external-target", StringComparison.Ordinal);
+        var verifiedMessage = external
+            ? $"Race condition verified — reproduced {finding.Reproductions.Count(item => item.Outcome == InvariantOutcome.Fail)}/3 on the authorized target and minimized to 2 actors."
+            : VerifiedReferenceMessage;
         return new FindingProjection(
             finding.Id,
             finding.RunId,
-            VerifiedReferenceMessage,
+            verifiedMessage,
             finding.OriginalInvariant.Outcome,
             finding.OriginalInvariant.Summary,
             finding.OriginalInvariant.TraceReferences,

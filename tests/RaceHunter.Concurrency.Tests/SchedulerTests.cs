@@ -85,6 +85,29 @@ public sealed class SchedulerTests
         Assert.Equal(2, await MeasurePeakAsync(global: 4, target: 4, experiment: 2));
 
     [Fact]
+    public async Task Scheduler_supports_one_hundred_logical_actors_without_exceeding_any_ceiling()
+    {
+        var scheduler = new ConcurrencyScheduler(globalConcurrency: 9, targetConcurrency: 7);
+        var budget = new ExperimentBudget(100, 5, 100, 1, TimeSpan.FromSeconds(30), 0);
+        var current = 0;
+        var peak = 0;
+
+        var result = await scheduler.ExecuteAsync(new SeededJitterStrategy(TimeSpan.Zero).Create(100, 4242), budget, async (_, token) =>
+        {
+            var active = Interlocked.Increment(ref current);
+            int observed;
+            while (active > (observed = Volatile.Read(ref peak))) Interlocked.CompareExchange(ref peak, active, observed);
+            await Task.Delay(2, token);
+            Interlocked.Decrement(ref current);
+            return TargetCallResult.Success();
+        }, CancellationToken.None);
+
+        Assert.Equal(100, result.Executions.Count);
+        Assert.InRange(peak, 1, 5);
+        Assert.Equal(BudgetStopReason.None, result.StopReason);
+    }
+
+    [Fact]
     public async Task Scheduler_stops_starting_work_when_request_budget_is_exhausted()
     {
         var scheduler = new ConcurrencyScheduler(4, 4);

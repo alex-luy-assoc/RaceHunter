@@ -6,6 +6,7 @@ using RaceHunter.Concurrency.Replay;
 using RaceHunter.Concurrency.Scheduling;
 using RaceHunter.Domain.Invariants;
 using RaceHunter.Domain.Replays;
+using RaceHunter.Infrastructure.Observability;
 
 namespace RaceHunter.Worker.Execution;
 
@@ -39,6 +40,11 @@ internal sealed class ReferenceInventoryTargetClient(HttpClient client)
 
     public async Task<TargetCallResult> PlaceOrderAsync(Guid runId, ScheduledActor actor, string? operationKey, CancellationToken cancellationToken)
     {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        using var activity = RaceHunterTelemetry.Activities.StartActivity("racehunter.target.place-order", System.Diagnostics.ActivityKind.Client);
+        activity?.SetTag("racehunter.run.id", runId.ToString());
+        activity?.SetTag("racehunter.actor.id", actor.ActorId);
+        activity?.SetTag("racehunter.step.id", actor.OperationKey);
         var requestId = Guid.NewGuid().ToString("N");
         using var response = await client.PostAsJsonAsync("/api/orders", new
         {
@@ -49,6 +55,7 @@ internal sealed class ReferenceInventoryTargetClient(HttpClient client)
             replayScope = operationKey is null ? null : TargetKey(operationKey)
         }, cancellationToken);
 
+        RaceHunterTelemetry.TargetLatency.Record(System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         if (response.StatusCode == HttpStatusCode.Conflict)
         {
             var rejected = await response.Content.ReadFromJsonAsync<InventoryOrderResponse>(cancellationToken);
@@ -58,6 +65,7 @@ internal sealed class ReferenceInventoryTargetClient(HttpClient client)
         var body = await response.Content.ReadFromJsonAsync<InventoryOrderResponse>(cancellationToken);
         if (body is null) throw new InvalidOperationException("The reference target returned no order evidence.");
         var targetCorrelationId = body.CorrelationId.ToString("N");
+        activity?.SetTag("racehunter.request.id", targetCorrelationId);
         return TargetCallResult.Success(
             [
                 Observation.Number("successful-orders", body.SuccessfulOrders, $"target-response:{targetCorrelationId}", targetCorrelationId),

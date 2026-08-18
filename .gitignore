@@ -22,3 +22,10 @@ TestResults/
 **/test-results/
 **/playwright-report/
 coverage/
+
+# Terraform local state and provider cache (the dependency lockfile is committed)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log

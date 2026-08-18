@@ -13,7 +13,9 @@ public sealed record WorkDispatch(
     WorkKind Kind,
     Guid SubjectId,
     string CorrelationId,
-    DateTime CreatedAtUtc);
+    DateTime CreatedAtUtc,
+    string? TraceParent = null,
+    string? TraceState = null);
 
 public enum WorkAcquireOutcome
 {

@@ -35,6 +35,18 @@ public sealed class MinimizerReplayTests
     }
 
     [Fact]
+    public async Task External_reproduction_requires_at_least_two_failures_in_three_equivalent_replays()
+    {
+        var result = await new ReproductionVerifier().VerifyExternalAsync(
+            Candidate(4, 1), new RecordingProbe([InvariantOutcome.Fail, InvariantOutcome.Pass, InvariantOutcome.Fail]),
+            CancellationToken.None);
+
+        Assert.True(result.Verified);
+        Assert.Equal(2, result.Failures);
+        Assert.Equal(3, result.Attempts.Count);
+    }
+
+    [Fact]
     public async Task Reference_reproduction_is_bounded_to_exactly_three_attempts()
     {
         var probe = new RecordingProbe(Enumerable.Repeat(InvariantOutcome.Fail, 10));

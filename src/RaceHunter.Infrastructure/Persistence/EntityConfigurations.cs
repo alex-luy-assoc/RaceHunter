@@ -16,6 +16,23 @@ internal sealed class ProjectConfiguration : IEntityTypeConfiguration<ProjectRec
     }
 }
 
+internal sealed class TargetSystemConfiguration : IEntityTypeConfiguration<TargetSystemRecord>
+{
+    public void Configure(EntityTypeBuilder<TargetSystemRecord> builder)
+    {
+        builder.ToTable("target_systems");
+        builder.HasKey(item => item.Id);
+        builder.Property(item => item.Id).HasColumnName("id").ValueGeneratedNever();
+        builder.Property(item => item.BaseUrl).HasColumnName("base_url").HasMaxLength(2048).IsRequired();
+        builder.Property(item => item.Host).HasColumnName("host").HasMaxLength(253).IsRequired();
+        builder.Property(item => item.CredentialReference).HasColumnName("credential_reference").HasMaxLength(500).IsRequired();
+        builder.Property(item => item.OperationPathsJson).HasColumnName("operation_paths_json").HasColumnType("jsonb").IsRequired();
+        builder.Property(item => item.SensitiveJsonPathsJson).HasColumnName("sensitive_json_paths_json").HasColumnType("jsonb").IsRequired();
+        builder.Property(item => item.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamp with time zone");
+        builder.HasIndex(item => item.BaseUrl).IsUnique();
+    }
+}
+
 internal sealed class RunConfiguration : IEntityTypeConfiguration<RunRecord>
 {
     public void Configure(EntityTypeBuilder<RunRecord> builder)
@@ -110,11 +127,17 @@ internal sealed class HuntConfiguration : IEntityTypeConfiguration<HuntRecord>
         builder.Property(item => item.ApprovedPlanVersion).HasColumnName("approved_plan_version").HasMaxLength(64);
         builder.Property(item => item.ApprovalKey).HasColumnName("approval_key").HasMaxLength(160);
         builder.Property(item => item.RunId).HasColumnName("run_id");
+        builder.Property(item => item.ManualTargetId).HasColumnName("manual_target_id");
         builder.Property(item => item.FailureOutcome).HasColumnName("failure_outcome").HasMaxLength(64);
         builder.Property(item => item.FailureDiagnostic).HasColumnName("failure_diagnostic").HasMaxLength(500);
         builder.Property(item => item.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamp with time zone");
         builder.HasIndex(item => item.ApprovalKey).IsUnique();
         builder.HasIndex(item => item.RunId).IsUnique();
+        builder.HasIndex(item => item.ManualTargetId);
+        builder.HasOne<TargetSystemRecord>()
+            .WithMany()
+            .HasForeignKey(item => item.ManualTargetId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
 
@@ -145,6 +168,8 @@ internal sealed class OutboxConfiguration : IEntityTypeConfiguration<OutboxRecor
         builder.Property(item => item.Kind).HasColumnName("kind").HasMaxLength(64).IsRequired();
         builder.Property(item => item.SubjectId).HasColumnName("subject_id");
         builder.Property(item => item.CorrelationId).HasColumnName("correlation_id").HasMaxLength(160).IsRequired();
+        builder.Property(item => item.TraceParent).HasColumnName("trace_parent").HasMaxLength(128);
+        builder.Property(item => item.TraceState).HasColumnName("trace_state").HasMaxLength(512);
         builder.Property(item => item.WorkCreatedAtUtc).HasColumnName("work_created_at_utc").HasColumnType("timestamp with time zone");
         builder.Property(item => item.PublishAttempts).HasColumnName("publish_attempts");
         builder.Property(item => item.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamp with time zone");
@@ -261,7 +286,7 @@ internal sealed class ReplayArtifactConfiguration : IEntityTypeConfiguration<Rep
         builder.Property(item => item.FindingId).HasColumnName("finding_id");
         builder.Property(item => item.ScenarioVersionId).HasColumnName("scenario_version_id").HasMaxLength(64).IsRequired();
         builder.Property(item => item.InvariantVersionId).HasColumnName("invariant_version_id").HasMaxLength(64).IsRequired();
-        builder.Property(item => item.TargetSnapshot).HasColumnName("target_snapshot").HasMaxLength(500).IsRequired();
+        builder.Property(item => item.TargetSnapshot).HasColumnName("target_snapshot").HasColumnType("text").IsRequired();
         builder.Property(item => item.Strategy).HasColumnName("strategy").HasMaxLength(64).IsRequired();
         builder.Property(item => item.Seed).HasColumnName("seed");
         builder.Property(item => item.RequestTemplateJson).HasColumnName("request_template_json").HasColumnType("jsonb").IsRequired();

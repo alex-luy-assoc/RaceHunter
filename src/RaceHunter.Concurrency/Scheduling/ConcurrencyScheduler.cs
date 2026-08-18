@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using RaceHunter.Domain.Budgets;
 using RaceHunter.Domain.Invariants;
 
@@ -18,6 +20,9 @@ public sealed record ScheduleExecutionResult(
 
 public sealed class ConcurrencyScheduler
 {
+    private static readonly Meter Meter = new("RaceHunter");
+    private static readonly UpDownCounter<long> ActiveActors = Meter.CreateUpDownCounter<long>("racehunter.scheduler.active");
+    private static readonly Histogram<double> LimiterWait = Meter.CreateHistogram<double>("racehunter.scheduler.limiter_wait", "ms");
     private readonly SemaphoreSlim globalLimiter;
     private readonly SemaphoreSlim targetLimiter;
 
@@ -63,12 +68,15 @@ public sealed class ConcurrencyScheduler
             {
                 if (actor.Offset > TimeSpan.Zero) await Task.Delay(actor.Offset, executionToken);
                 if (startBarrier is not null) await startBarrier.SignalAndWaitAsync(executionToken);
+                var limiterStarted = Stopwatch.GetTimestamp();
                 await globalLimiter.WaitAsync(executionToken);
                 globalAcquired = true;
                 await targetLimiter.WaitAsync(executionToken);
                 targetAcquired = true;
                 await experimentLimiter.WaitAsync(executionToken);
                 experimentAcquired = true;
+                LimiterWait.Record(Stopwatch.GetElapsedTime(limiterStarted).TotalMilliseconds);
+                ActiveActors.Add(1);
                 executionToken.ThrowIfCancellationRequested();
                 if (!ledger.TryConsumeRequest(DateTime.UtcNow)) return;
 
@@ -86,7 +94,11 @@ public sealed class ConcurrencyScheduler
             }
             finally
             {
-                if (experimentAcquired) experimentLimiter.Release();
+                if (experimentAcquired)
+                {
+                    ActiveActors.Add(-1);
+                    experimentLimiter.Release();
+                }
                 if (targetAcquired) targetLimiter.Release();
                 if (globalAcquired) globalLimiter.Release();
             }

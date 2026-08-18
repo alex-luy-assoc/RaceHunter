@@ -24,7 +24,8 @@ public sealed record HuntSnapshot(
     Guid? RunId,
     DateTime CreatedAtUtc,
     string? FailureOutcome = null,
-    string? FailureDiagnostic = null);
+    string? FailureDiagnostic = null,
+    Guid? ManualTargetId = null);
 
 public sealed record HuntEvent(long Cursor, string Kind, string Message, DateTime OccurredAtUtc);
 
@@ -39,12 +40,21 @@ public interface IHuntStore
     Task MarkPlanningFailedAsync(Guid huntId, ModelOutcome outcome, string sanitizedDiagnostic, DateTime nowUtc, CancellationToken cancellationToken);
 }
 
-public sealed class CreateHunt(IHuntStore store)
+public sealed class CreateHunt(IHuntStore store, IManualTargetStore manualTargets)
 {
     public async Task<HuntSnapshot> ExecuteAsync(string objective, ExperimentBudget budget, CancellationToken cancellationToken)
+        => await ExecuteAsync(objective, budget, null, cancellationToken);
+
+    public async Task<HuntSnapshot> ExecuteAsync(
+        string objective,
+        ExperimentBudget budget,
+        Guid? manualTargetId,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(objective)) throw new DomainException("A business objective is required.");
-        var hunt = new HuntSnapshot(Guid.NewGuid(), objective.Trim(), budget, HuntStatus.Draft, null, null, null, DateTime.UtcNow);
+        if (manualTargetId.HasValue && await manualTargets.GetAsync(manualTargetId.Value, cancellationToken) is null)
+            throw new DomainException("The authorized manual target does not exist.");
+        var hunt = new HuntSnapshot(Guid.NewGuid(), objective.Trim(), budget, HuntStatus.Draft, null, null, null, DateTime.UtcNow, ManualTargetId: manualTargetId);
         await store.AddAsync(hunt, cancellationToken);
         return hunt;
     }

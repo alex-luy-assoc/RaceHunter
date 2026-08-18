@@ -99,10 +99,20 @@ Use structured RFC 9457 Problem Details at HTTP boundaries. Preserve correlation
 - Enforce hard traffic and cost budgets server-side and make them visible to the user.
 - Audit target changes, run/replay requests, cancellation, safety rejections, and privileged demo reset actions.
 - Keep reference-target reset and vulnerable/fixed controls unavailable outside approved demo/development configuration.
+- Hide manual-target configuration behind a fixed-time local/admin bearer check and return `404` to unauthenticated public-sandbox callers. Require explicit ownership acknowledgement, an exact host allowlist, HTTPS outside explicit Development hosts, stable GET/POST operation IDs, bounded JSON templates with four allowlisted placeholders, deterministic observation JSON paths, configured sensitive paths, and a Secret Manager version reference; never accept a credential value.
+- Resolve every manual destination immediately before use, reject the whole answer set if any address is loopback, private, link-local, metadata, multicast, or otherwise prohibited, and pin the HTTP connection to the validated address with `SocketsHttpHandler.ConnectCallback`. Disable automatic redirects and reject cross-scheme, cross-host, and even same-host implicit redirects until an operation explicitly authorizes them.
+- Enforce public-sandbox ceilings at the API boundary even when a caller supplies larger JSON values. Only the authenticated local/admin engine may request up to 100 logical actors, and it remains subject to global, target, experiment, request, model, duration, and retry limits.
+- Acquire Cloud Run identity tokens only from the metadata server with proxy bypass, cache them only until near expiry, bind them to the exact configured HTTPS audience, and refuse to attach them to a different scheme, host, or port. Pub/Sub push uses the same exact worker audience and service-account-scoped `run.invoker` IAM.
+- Keep worker and target `run.app` ingress routable when no VPC path is provisioned, but grant `run.invoker` only to the exact API, Pub/Sub push, and worker service accounts. An internet-routable URL is not a public service without `allUsers` IAM.
+- Bind an authorized manual target ID immutably to the hunt. Planning sees only that snapshot's executable operations; concurrent execution reuses one validated in-scope snapshot, resolves its Secret Manager reference only inside the worker, renders only allowlisted placeholders, bounds and redacts responses, and extracts only configured numeric observations. Require at least two failures in three equivalent external replays, minimize to two actors, embed the complete target snapshot in the artifact, and reject replay if the current immutable record differs. Staging grants the worker accessor IAM only for Terraform's explicit `manual_target_secret_ids` set.
 
 ## Observability Pattern
 
 Emit structured logs, OpenTelemetry traces, and metrics for queue delay, active runs, attempts, limiter occupancy, target latency/errors, invariant outcomes, findings, replay rate, Gemini calls/usage/failures, database latency, duplicate messages, and cancellation latency. Successful low-level events may be sampled; evidence supporting a finding may not.
+
+Use JSON console logging in all three application images. Propagate W3C `traceparent` and `tracestate` through Pub/Sub attributes and HTTP automatically; retain the durable RaceHunter correlation ID across outbox and inbox recovery. Add safe span tags for work, run, attempt, actor, step, request, model invocation, finding, and replay artifact IDs, never payload bodies or credentials. Compose export is opt-in through `OTEL_EXPORTER_OTLP_ENDPOINT`; Terraform supplies a Google-built collector sidecar per service and the least-privilege Cloud Trace/Monitoring writer roles.
+
+Cap staging at one worker instance and one inbound worker request while limiters are process-local. The single worker still schedules up to 100 logical actors under its global, target, experiment, request, and duration ceilings; scale-out requires a distributed limiter first.
 
 ## Testing Patterns
 

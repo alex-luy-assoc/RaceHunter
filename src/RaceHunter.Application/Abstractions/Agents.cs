@@ -47,7 +47,7 @@ public enum AgentActionKind
 }
 
 public sealed record CampaignSettings(int ActorCount, string Strategy, int TimingAdjustmentMs);
-public sealed record DeterministicReplayStep(int ActorId, int OffsetMilliseconds);
+public sealed record DeterministicReplayStep(int ActorId, int OffsetMilliseconds, string OperationId = "place-order");
 public sealed record EvidenceSummary(
     string InvariantOutcome,
     IReadOnlyList<string> TraceReferences,
@@ -179,13 +179,15 @@ public sealed class AdaptiveCampaignContext
         int resumeAfterIteration = 0,
         int requestsAlreadyConsumed = 0,
         int modelCallsAlreadyConsumed = 0,
-        DeterministicAttemptResult? recoveredAttempt = null)
+        DeterministicAttemptResult? recoveredAttempt = null,
+        int fixedRequestsPerAttempt = 0)
     {
         if (experimentId == Guid.Empty) throw new ArgumentException("An experiment ID is required.", nameof(experimentId));
         if (maxIterations < 1) throw new ArgumentOutOfRangeException(nameof(maxIterations));
         if (resumeAfterIteration < 0 || resumeAfterIteration > maxIterations) throw new ArgumentOutOfRangeException(nameof(resumeAfterIteration));
         if (requestsAlreadyConsumed < 0 || requestsAlreadyConsumed > budget.MaxRequests) throw new ArgumentOutOfRangeException(nameof(requestsAlreadyConsumed));
         if (modelCallsAlreadyConsumed < 0 || modelCallsAlreadyConsumed > budget.MaxModelCalls) throw new ArgumentOutOfRangeException(nameof(modelCallsAlreadyConsumed));
+        if (fixedRequestsPerAttempt < 0 || fixedRequestsPerAttempt > budget.MaxRequests) throw new ArgumentOutOfRangeException(nameof(fixedRequestsPerAttempt));
         ExperimentId = experimentId;
         Initial = initial;
         AllowedStrategies = allowedStrategies;
@@ -195,6 +197,7 @@ public sealed class AdaptiveCampaignContext
         RequestsAlreadyConsumed = requestsAlreadyConsumed;
         ModelCallsAlreadyConsumed = modelCallsAlreadyConsumed;
         RecoveredAttempt = recoveredAttempt;
+        FixedRequestsPerAttempt = fixedRequestsPerAttempt;
     }
 
     public Guid ExperimentId { get; }
@@ -206,6 +209,7 @@ public sealed class AdaptiveCampaignContext
     public int RequestsAlreadyConsumed { get; }
     public int ModelCallsAlreadyConsumed { get; }
     public DeterministicAttemptResult? RecoveredAttempt { get; }
+    public int FixedRequestsPerAttempt { get; }
 }
 
 public sealed record DeterministicAttemptResult(
@@ -230,13 +234,14 @@ public sealed record AdaptiveCampaignResult(
     int ModelCalls,
     IReadOnlyList<StrategyDecision> Decisions,
     CampaignSettings? FailedSettings = null,
-    DeterministicAttemptResult? FailedAttempt = null);
+    DeterministicAttemptResult? FailedAttempt = null,
+    int RequestsConsumed = 0);
 
 public sealed class AdaptiveStrategyLoop(IExperimentStrategist strategist)
 {
     public async Task<AdaptiveCampaignResult> RunAsync(
         AdaptiveCampaignContext context,
-        Func<CampaignSettings, CancellationToken, Task<DeterministicAttemptResult>> executeAttempt,
+        Func<int, CampaignSettings, CancellationToken, Task<DeterministicAttemptResult>> executeAttempt,
         CancellationToken cancellationToken,
         Func<int, StrategyDecision, EvidenceSummary, CancellationToken, Task>? decisionSink = null,
         Func<int, CampaignSettings, EvidenceSummary, CancellationToken, Task>? attemptSink = null)
@@ -259,9 +264,10 @@ public sealed class AdaptiveStrategyLoop(IExperimentStrategist strategist)
             }
             else
             {
-                if (requestsConsumed >= context.Budget.MaxRequests || settings.ActorCount > context.Budget.MaxRequests - requestsConsumed)
-                    return new AdaptiveCampaignResult(CampaignOutcome.BudgetExhausted, verified, iteration - 1, modelCallsConsumed, decisions);
-                attempt = await executeAttempt(settings, cancellationToken);
+                var attemptCost = checked(settings.ActorCount + context.FixedRequestsPerAttempt);
+                if (requestsConsumed >= context.Budget.MaxRequests || attemptCost > context.Budget.MaxRequests - requestsConsumed)
+                    return new AdaptiveCampaignResult(CampaignOutcome.BudgetExhausted, verified, iteration - 1, modelCallsConsumed, decisions, RequestsConsumed: requestsConsumed);
+                attempt = await executeAttempt(iteration, settings, cancellationToken);
                 requestsConsumed = checked(requestsConsumed + attempt.RequestsConsumed);
             }
             verified |= attempt.InvariantOutcome == InvariantOutcome.Fail;
@@ -275,7 +281,7 @@ public sealed class AdaptiveStrategyLoop(IExperimentStrategist strategist)
             if (!recovered && attemptSink is not null) await attemptSink(iteration, settings, evidence, cancellationToken);
 
             if (modelCallsConsumed >= context.Budget.MaxModelCalls)
-                return new AdaptiveCampaignResult(CampaignOutcome.BudgetExhausted, verified, iteration, modelCallsConsumed, decisions);
+                return new AdaptiveCampaignResult(CampaignOutcome.BudgetExhausted, verified, iteration, modelCallsConsumed, decisions, RequestsConsumed: requestsConsumed);
 
             StrategyDecision decision;
             try
@@ -304,19 +310,19 @@ public sealed class AdaptiveStrategyLoop(IExperimentStrategist strategist)
             }
             catch (ModelOutputException exception) when (exception.Outcome == ModelOutcome.BudgetExhausted)
             {
-                return new AdaptiveCampaignResult(CampaignOutcome.BudgetExhausted, verified, iteration, checked(modelCallsConsumed + exception.ModelCallsConsumed), decisions);
+                return new AdaptiveCampaignResult(CampaignOutcome.BudgetExhausted, verified, iteration, checked(modelCallsConsumed + exception.ModelCallsConsumed), decisions, RequestsConsumed: requestsConsumed);
             }
             catch (ModelOutputException exception)
             {
-                return new AdaptiveCampaignResult(CampaignOutcome.ModelFailed, verified, iteration, checked(modelCallsConsumed + exception.ModelCallsConsumed), decisions);
+                return new AdaptiveCampaignResult(CampaignOutcome.ModelFailed, verified, iteration, checked(modelCallsConsumed + exception.ModelCallsConsumed), decisions, RequestsConsumed: requestsConsumed);
             }
             catch (AgentActionValidationException)
             {
-                return new AdaptiveCampaignResult(CampaignOutcome.ModelFailed, verified, iteration, modelCallsConsumed, decisions);
+                return new AdaptiveCampaignResult(CampaignOutcome.ModelFailed, verified, iteration, modelCallsConsumed, decisions, RequestsConsumed: requestsConsumed);
             }
 
             if (modelCallsConsumed + decision.ModelCallsConsumed > context.Budget.MaxModelCalls)
-                return new AdaptiveCampaignResult(CampaignOutcome.BudgetExhausted, verified, iteration, modelCallsConsumed, decisions);
+                return new AdaptiveCampaignResult(CampaignOutcome.BudgetExhausted, verified, iteration, modelCallsConsumed, decisions, RequestsConsumed: requestsConsumed);
             decisions.Add(decision);
             modelCallsConsumed += decision.ModelCallsConsumed;
             evidence = evidence with { ModelCallsConsumed = modelCallsConsumed };
@@ -324,12 +330,12 @@ public sealed class AdaptiveStrategyLoop(IExperimentStrategist strategist)
             if (decision.Action is AgentActionKind.Stop or AgentActionKind.StartMinimization)
             {
                 var outcome = verified ? CampaignOutcome.VerifiedViolation : CampaignOutcome.CompletedWithoutFinding;
-                return new AdaptiveCampaignResult(outcome, verified, iteration, modelCallsConsumed, decisions, failedSettings, failedAttempt);
+                return new AdaptiveCampaignResult(outcome, verified, iteration, modelCallsConsumed, decisions, failedSettings, failedAttempt, requestsConsumed);
             }
 
             settings = new CampaignSettings(decision.ActorCount, decision.Strategy, decision.TimingAdjustmentMs);
         }
 
-        return new AdaptiveCampaignResult(CampaignOutcome.BudgetExhausted, verified, context.MaxIterations, modelCallsConsumed, decisions);
+        return new AdaptiveCampaignResult(CampaignOutcome.BudgetExhausted, verified, context.MaxIterations, modelCallsConsumed, decisions, RequestsConsumed: requestsConsumed);
     }
 }

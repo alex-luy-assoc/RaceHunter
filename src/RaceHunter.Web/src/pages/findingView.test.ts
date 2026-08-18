@@ -33,6 +33,9 @@ describe('finding view projection', () => {
     const incomplete = finding()
     incomplete.reproductions[2] = { ...incomplete.reproductions[2], outcome: 'Pass' }
     expect(findingHeadline(incomplete)).toBe('Finding evidence is not yet fully reproduced and minimized.')
+    incomplete.agentInterpretation = 'Verified authorized external-target evidence.'
+    incomplete.successMessage = 'Race condition verified — reproduced 2/3 on the authorized target and minimized to 2 actors.'
+    expect(findingHeadline(incomplete)).toBe(incomplete.successMessage)
   })
 
   it('orders causal actor lanes and their events deterministically', () => {

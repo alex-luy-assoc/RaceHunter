@@ -62,6 +62,28 @@ public sealed class FindingWorkflowTests
     }
 
     [Fact]
+    public void External_finding_accepts_two_failures_in_three_equivalent_replays()
+    {
+        var artifact = ReplayArtifact.Create(Guid.NewGuid(), Guid.NewGuid(), "scenario-v1", "invariant-v1",
+            "{\"kind\":\"manual-http-json\",\"targetId\":\"11111111-1111-1111-1111-111111111111\"}",
+            "checkpoint-interleaving", 42,
+            [new ReplayStep(1, "place-order", "place-order", 0), new ReplayStep(2, "place-order", "place-order", 0)],
+            "{}", Utc(4));
+        var reproductions = new[]
+        {
+            new ReproductionAttempt(1, InvariantOutcome.Fail, ["trace:1"]),
+            new ReproductionAttempt(2, InvariantOutcome.Pass, ["trace:2"]),
+            new ReproductionAttempt(3, InvariantOutcome.Fail, ["trace:3"])
+        };
+
+        var finding = Finding.CreateReference(artifact.FindingId, Guid.NewGuid(), "invariant-v1",
+            new InvariantResult(InvariantOutcome.Fail, ["trace:0"], "configured invariant failed"),
+            reproductions, artifact, Utc(5), "authorized external-target evidence");
+
+        Assert.Equal(2, finding.Reproductions.Count(item => item.Outcome == InvariantOutcome.Fail));
+    }
+
+    [Fact]
     public async Task Finding_projection_exposes_exact_judge_message_evidence_timeline_and_agent_activity()
     {
         var state = State();

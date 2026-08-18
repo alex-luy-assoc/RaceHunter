@@ -40,3 +40,23 @@ variable "monthly_budget_usd" {
     error_message = "monthly_budget_usd must be positive."
   }
 }
+
+variable "max_instance_count" {
+  description = "Hard per-service Cloud Run scale ceiling for staging cost containment."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.max_instance_count >= 1 && var.max_instance_count <= 10
+    error_message = "max_instance_count must be between 1 and 10."
+  }
+}
+
+variable "manual_target_secret_ids" {
+  description = "Secret Manager secret resource IDs explicitly authorized for authenticated manual targets. Values are secret IDs, not secret data."
+  type        = set(string)
+  default     = []
+  validation {
+    condition     = alltrue([for id in var.manual_target_secret_ids : can(regex("^[A-Za-z0-9_-]{1,255}$", id))])
+    error_message = "manual_target_secret_ids may contain only Secret Manager secret IDs."
+  }
+}

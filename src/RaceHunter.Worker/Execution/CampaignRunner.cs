@@ -11,6 +11,7 @@ using RaceHunter.Domain.Findings;
 using RaceHunter.Domain.Invariants;
 using RaceHunter.Domain.Replays;
 using RaceHunter.Domain.Runs;
+using RaceHunter.Infrastructure.Observability;
 
 namespace RaceHunter.Worker.Execution;
 
@@ -21,10 +22,12 @@ internal sealed class CampaignRunner(
     IAgentDecisionCheckpointStore decisionCheckpoints,
     IExperimentStrategist strategist,
     ReferenceCampaignAttemptExecutor attemptExecutor,
+    ManualHttpTargetClient manualTarget,
     ReferenceInventoryTargetClient target,
     IFindingStore findings,
     IFindingProbeCheckpointStore probeCheckpoints,
     ITraceStore traces,
+    DurableCancellationMonitor cancellationMonitor,
     IConfiguration configuration) : ICampaignWorkHandler
 {
     public async Task ExecuteAsync(
@@ -43,7 +46,8 @@ internal sealed class CampaignRunner(
         if (run.Status == RunStatus.Queued)
         {
             run.Start(DateTime.UtcNow);
-            run.AppendEvent("campaign-started", $"Approved plan {plan.PlanVersion} started.", DateTime.UtcNow);
+            var workerRevision = Environment.GetEnvironmentVariable("K_REVISION") ?? "docker-compose-local";
+            run.AppendEvent("campaign-started", $"Approved plan {plan.PlanVersion} started by worker revision {workerRevision}.", DateTime.UtcNow);
             await runs.SaveAsync(run, cancellationToken);
         }
 
@@ -61,8 +65,19 @@ internal sealed class CampaignRunner(
         }
 
         using var timeout = new CancellationTokenSource(remainingDuration);
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+        using var durableCancellation = new CancellationTokenSource();
+        using var monitorStop = new CancellationTokenSource();
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token, durableCancellation.Token);
+        var monitor = cancellationMonitor.WaitAsync(runId, durableCancellation, monitorStop.Token);
+        var demoControlKey = hunt.ManualTargetId.HasValue
+            ? null
+            : configuration["ReferenceTarget:DemoControlKey"]
+                ?? throw new InvalidOperationException("ReferenceTarget:DemoControlKey is required for campaign setup.");
         var recovered = RecoverSettings(recoveredCheckpoint, plan);
+        var manualSetupCost = hunt.ManualTargetId.HasValue &&
+            (await manualTarget.GetSnapshotAsync(hunt.ManualTargetId.Value, cancellationToken)).Operations.Any(operation => operation.IsSetup)
+            ? 1
+            : 0;
         var context = new AdaptiveCampaignContext(
             run.Id,
             recovered.Settings,
@@ -72,10 +87,17 @@ internal sealed class CampaignRunner(
             recovered.ResumeAfterIteration,
             recovered.RequestsConsumed,
             recovered.HasCheckpoint ? recovered.ModelCallsConsumed : plan.ModelCallsConsumed,
-            recovered.RecoveredAttempt);
+            recovered.RecoveredAttempt,
+            manualSetupCost);
         var invariant = PlannedInvariantCompiler.Compile(plan.Invariant);
         try
         {
+            if (!hunt.ManualTargetId.HasValue)
+                await target.ResetAsync(
+                    ReplayTargetMode.Vulnerable,
+                    demoControlKey!,
+                    $"{run.Id:N}:campaign-reset",
+                    bounded.Token);
             AdaptiveCampaignResult result;
             if (recovered.FinalizeFinding)
             {
@@ -86,13 +108,16 @@ internal sealed class CampaignRunner(
                     recovered.ModelCallsConsumed,
                     [],
                     recovered.FailedSettings,
-                    recovered.RecoveredAttempt);
+                    recovered.RecoveredAttempt,
+                    recovered.RequestsConsumed);
             }
             else
             {
                 result = await new AdaptiveStrategyLoop(strategist).RunAsync(
                     context,
-                    (settings, token) => attemptExecutor.ExecuteAsync(run.Id, run.Budget, invariant, plan.Strategy.Seed, settings, token),
+                    (iteration, settings, token) => attemptExecutor.ExecuteAsync(run.Id, run.Budget, invariant, plan.Strategy.Seed,
+                        settings, hunt.ManualTargetId, plan.Actors.Select(actor => actor.OperationId).ToArray(),
+                        CreateAttemptExecutionKey(run.Id, iteration), token),
                     bounded.Token,
                 async (iteration, decision, evidence, token) =>
                 {
@@ -148,7 +173,8 @@ internal sealed class CampaignRunner(
 
             if (result.Outcome == CampaignOutcome.VerifiedViolation)
             {
-                var findingId = await FinalizeFindingAsync(run, plan, invariant, result, attemptExecutor, target, runs, findings, probeCheckpoints, traces, configuration, bounded.Token);
+                var findingId = await FinalizeFindingAsync(run, plan, invariant, result, attemptExecutor, manualTarget,
+                    target, hunt.ManualTargetId, runs, findings, probeCheckpoints, traces, configuration, bounded.Token);
                 run.AppendEvent(
                     findingId.HasValue ? "finding-ready" : "reproduction-inconclusive",
                     findingId.HasValue
@@ -170,6 +196,29 @@ internal sealed class CampaignRunner(
             if (result.Outcome == CampaignOutcome.ModelFailed) run.Fail(DateTime.UtcNow);
             else run.Complete(DateTime.UtcNow);
             await runs.SaveAsync(run, CancellationToken.None);
+        }
+        catch (OperationCanceledException) when (durableCancellation.IsCancellationRequested)
+        {
+            Exception? probeFailure = null;
+            try { await monitor; }
+            catch (Exception exception) { probeFailure = exception; }
+            var durable = await runs.GetAsync(runId, CancellationToken.None) ?? run;
+            if (durable.IsActive)
+            {
+                durable.AppendEvent(
+                    probeFailure is null ? "cancellation-observed" : "cancellation-probe-failed",
+                    probeFailure is null
+                        ? "The worker observed the persisted cancellation request and stopped scheduling target work."
+                        : "The worker stopped target work because durable cancellation state could not be read.",
+                    DateTime.UtcNow);
+                if (probeFailure is null) durable.Cancel(DateTime.UtcNow);
+                else durable.Fail(DateTime.UtcNow);
+                await runs.SaveAsync(durable, CancellationToken.None);
+                if (probeFailure is null && durable.CancellationRequestedAtUtc.HasValue)
+                    RaceHunterTelemetry.CancellationLatency.Record((DateTime.UtcNow - durable.CancellationRequestedAtUtc.Value).TotalMilliseconds);
+            }
+            if (probeFailure is not null) throw new DurableCancellationProbeException(probeFailure);
+            return;
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
@@ -198,12 +247,20 @@ internal sealed class CampaignRunner(
             }
             throw;
         }
+        finally
+        {
+            monitorStop.Cancel();
+            try { await monitor; }
+            catch (OperationCanceledException) when (monitorStop.IsCancellationRequested) { }
+            catch (Exception) when (monitor.IsFaulted) { }
+        }
     }
 
     private static string Classify(Exception exception) => exception switch
     {
         ModelOutputException => "model",
         HttpRequestException => "transport",
+        DurableCancellationProbeException => "persistence",
         InvalidOperationException => "orchestration",
         _ => "worker"
     };
@@ -214,7 +271,9 @@ internal sealed class CampaignRunner(
         InvariantDefinition invariant,
         AdaptiveCampaignResult result,
         ReferenceCampaignAttemptExecutor attemptExecutor,
+        ManualHttpTargetClient manualTarget,
         ReferenceInventoryTargetClient target,
+        Guid? manualTargetId,
         IRunStore runs,
         IFindingStore findings,
         IFindingProbeCheckpointStore probeCheckpoints,
@@ -229,34 +288,41 @@ internal sealed class CampaignRunner(
         var original = CreateReplayCandidate(failedSettings, failedAttempt, plan.Strategy.Seed);
         var persistedTraces = await traces.GetAsync(run.Id, 0, cancellationToken);
         var persistedRequestIds = persistedTraces.Select(item => item.RequestId).ToHashSet(StringComparer.Ordinal);
-        var demoControlKey = configuration["ReferenceTarget:DemoControlKey"]
+        var manualSetupCost = manualTargetId.HasValue &&
+            (await manualTarget.GetSnapshotAsync(manualTargetId.Value, cancellationToken)).Operations.Any(operation => operation.IsSetup)
+            ? 1
+            : 0;
+        var completedProbeRequests = await probeCheckpoints.GetRequestsConsumedAsync(run.Id, cancellationToken);
+        var demoControlKey = manualTargetId.HasValue ? null : configuration["ReferenceTarget:DemoControlKey"]
             ?? throw new InvalidOperationException("ReferenceTarget:DemoControlKey is required for measured reproduction.");
         var probe = new DurableFindingReplayProbe(
             run.Id,
-            Math.Max(0, run.Budget.MaxRequests - persistedTraces.Count),
+            RemainingFindingRequests(run.Budget.MaxRequests, result.RequestsConsumed, completedProbeRequests),
             probeCheckpoints,
-            (probeKey, candidate, _, token) => target.CountMissingOrdersAsync(
-                candidate,
-                $"{run.Id:N}:{probeKey}",
-                demoControlKey,
-                persistedRequestIds,
-                token),
+            manualTargetId.HasValue
+                ? (_, candidate, _, _) => Task.FromResult(candidate.Steps.Count + manualSetupCost)
+                : (probeKey, candidate, _, token) => target.CountMissingOrdersAsync(
+                    candidate, $"{run.Id:N}:{probeKey}", demoControlKey!, persistedRequestIds, token),
             async (probeKey, candidate, mode, token) =>
             {
-                await target.ResetAsync(mode, demoControlKey, $"{run.Id:N}:{probeKey}:reset", token);
+                if (!manualTargetId.HasValue)
+                    await target.ResetAsync(mode, demoControlKey!, $"{run.Id:N}:{probeKey}:reset", token);
                 var attempt = await attemptExecutor.ExecuteReplayAsync(
                     run.Id,
                     run.Budget,
                     invariant,
                     candidate,
                     $"{run.Id:N}:{probeKey}",
+                    manualTargetId,
                     token);
                 return new ReplayObservation(attempt.InvariantOutcome, attempt.TraceReferences, attempt.RequestsConsumed);
             });
         var reproduction = await PersistedRunLifecycle.RunReproductionAsync(
             run,
             runs,
-            token => new ReproductionVerifier().VerifyReferenceAsync(original, probe, token),
+            token => manualTargetId.HasValue
+                ? new ReproductionVerifier().VerifyExternalAsync(original, probe, token)
+                : new ReproductionVerifier().VerifyReferenceAsync(original, probe, token),
             cancellationToken);
         if (!reproduction.Verified) return null;
         var minimized = await PersistedRunLifecycle.RunMinimizationAsync(
@@ -266,19 +332,28 @@ internal sealed class CampaignRunner(
             cancellationToken);
         if (minimized.Candidate.ActorCount != 2) return null;
 
-        var artifact = CreateReplayArtifact(run, plan, minimized.Candidate);
+        var artifact = manualTargetId.HasValue
+            ? await CreateManualReplayArtifactAsync(run, plan, minimized.Candidate, manualTarget, manualTargetId.Value, cancellationToken)
+            : CreateReplayArtifact(run, plan, minimized.Candidate);
         var findingId = artifact.FindingId;
+        using var findingActivity = RaceHunterTelemetry.Activities.StartActivity("racehunter.finding.verify");
+        findingActivity?.SetTag("racehunter.run.id", run.Id.ToString());
+        findingActivity?.SetTag("racehunter.finding.id", findingId.ToString());
+        findingActivity?.SetTag("racehunter.artifact.id", artifact.Id.ToString());
         var vulnerableReplay = await probe.ExecuteAsync("proof:vulnerable", minimized.Candidate, ReplayTargetMode.Vulnerable, cancellationToken);
         if (vulnerableReplay.Outcome != InvariantOutcome.Fail) return null;
         var finding = Finding.CreateReference(
             findingId,
             run.Id,
             artifact.InvariantVersionId,
-            new InvariantResult(InvariantOutcome.Fail, failedAttempt.TraceReferences, "Successful orders exceeded available inventory."),
+            new InvariantResult(InvariantOutcome.Fail, failedAttempt.TraceReferences,
+                manualTargetId.HasValue ? "The configured deterministic invariant failed." : "Successful orders exceeded available inventory."),
             reproduction.Attempts.Select(item => new ReproductionAttempt(item.Attempt, item.Outcome, item.TraceReferences)).ToArray(),
             artifact,
             artifact.CreatedAtUtc,
-            "Gemini strategy activity is advisory; deterministic evaluator evidence verified and minimized this finding.");
+            manualTargetId.HasValue
+                ? "Deterministic evaluator evidence reproduced this authorized external-target finding in at least two of three equivalent replays."
+                : "Gemini strategy activity is advisory; deterministic evaluator evidence verified and minimized this finding.");
         var vulnerableAttempt = ReplayAttempt.Complete(
             Guid.NewGuid(),
             artifact.Id,
@@ -286,9 +361,10 @@ internal sealed class CampaignRunner(
             vulnerableReplay.Outcome,
             vulnerableReplay.TraceReferences,
             artifact.Fingerprint,
-            "reference-vulnerable-proof",
+            manualTargetId.HasValue ? "manual-authorized-proof" : "reference-vulnerable-proof",
             DateTime.UtcNow);
         await findings.AddVerifiedAsync(finding, artifact, vulnerableAttempt, cancellationToken);
+        RaceHunterTelemetry.Findings.Add(1, new KeyValuePair<string, object?>("outcome", "verified"));
         return findingId;
     }
 
@@ -303,6 +379,18 @@ internal sealed class CampaignRunner(
         candidate.Steps,
         "{\"quantity\":1}",
         run.StartedAtUtc ?? run.CreatedAtUtc);
+
+    private static async Task<ReplayArtifact> CreateManualReplayArtifactAsync(
+        ExperimentRun run, ScenarioPlan plan, ReplayCandidate candidate, ManualHttpTargetClient client,
+        Guid targetId, CancellationToken cancellationToken)
+    {
+        var target = await client.GetSnapshotAsync(targetId, cancellationToken);
+        var snapshot = ManualReplaySnapshot.Serialize(target, plan.Invariant);
+        return ReplayArtifact.Create(
+            DeterministicId(run.Id, "replay-artifact"), DeterministicId(run.Id, "finding"), plan.PlanVersion,
+            "invariant-v1", snapshot, candidate.Strategy, candidate.Seed, candidate.Steps,
+            "{}", run.StartedAtUtc ?? run.CreatedAtUtc);
+    }
 
     private static Guid DeterministicId(Guid runId, string purpose)
     {
@@ -320,8 +408,14 @@ internal sealed class CampaignRunner(
         return new ReplayCandidate(
             failedSettings.Strategy,
             seed,
-            exactSchedule.Select(step => new ReplayStep(step.ActorId, "place-order", "place-order", step.OffsetMilliseconds)));
+            exactSchedule.Select(step => new ReplayStep(step.ActorId, step.OperationId, step.OperationId, step.OffsetMilliseconds)));
     }
+
+    internal static string CreateAttemptExecutionKey(Guid runId, int iteration) =>
+        $"{runId:N}:campaign:{iteration}";
+
+    internal static int RemainingFindingRequests(int maximum, int campaignConsumed, int completedProbeConsumed) =>
+        Math.Max(0, maximum - checked(campaignConsumed + completedProbeConsumed));
 
     internal static RecoveryState RecoverSettings(WorkCheckpoint? checkpoint, ScenarioPlan plan)
     {

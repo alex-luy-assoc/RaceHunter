@@ -8,9 +8,19 @@ output "worker_service" {
   value       = google_cloud_run_v2_service.worker.name
 }
 
+output "worker_url" {
+  description = "Private worker audience used for API and Pub/Sub identity tokens."
+  value       = google_cloud_run_v2_service.worker.uri
+}
+
 output "reference_target_service" {
   description = "Private reference target service name."
   value       = google_cloud_run_v2_service.reference_target.name
+}
+
+output "reference_target_url" {
+  description = "Private reference target audience used by worker identity tokens."
+  value       = google_cloud_run_v2_service.reference_target.uri
 }
 
 output "pubsub_topic" {

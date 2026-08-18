@@ -14,8 +14,13 @@ public sealed class Finding
         if (originalInvariant.Outcome != InvariantOutcome.Fail)
             throw new InvalidOperationException("Only a deterministic failed invariant can create a finding.");
         var measured = reproductions.OrderBy(item => item.Attempt).ToArray();
-        if (measured.Length != 3 || measured.Select(item => item.Attempt).Distinct().Count() != 3 || measured.Any(item => item.Outcome != InvariantOutcome.Fail))
-            throw new InvalidOperationException("A reference finding requires a measured three failures out of three reproductions.");
+        var external = artifact.TargetSnapshot.StartsWith("{\"kind\":\"manual-http-json\"", StringComparison.Ordinal);
+        var failures = measured.Count(item => item.Outcome == InvariantOutcome.Fail);
+        if (measured.Length != 3 || measured.Select(item => item.Attempt).Distinct().Count() != 3 ||
+            (external ? failures < 2 : failures != 3))
+            throw new InvalidOperationException(external
+                ? "An external finding requires at least two measured failures out of three equivalent reproductions."
+                : "A reference finding requires a measured three failures out of three reproductions.");
         if (artifact.FindingId != id || artifact.ActorCount != 2)
             throw new InvalidOperationException("A reference finding requires its own replay artifact minimized to two actors.");
         Id = id;

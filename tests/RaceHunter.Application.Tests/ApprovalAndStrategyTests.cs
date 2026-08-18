@@ -65,7 +65,7 @@ public sealed class ApprovalAndStrategyTests
     public async Task Adaptive_loop_can_only_report_verified_when_deterministic_attempt_failed()
     {
         var loop = new AdaptiveStrategyLoop(new FixedStrategist(new StrategyDecision(AgentActionKind.Stop, 2, "simultaneous-start", 0, "Done.", "strategy-v1", "fake", "i-1")));
-        var result = await loop.RunAsync(Context(), (_, _) => Task.FromResult(new DeterministicAttemptResult(InvariantOutcome.Pass, ["trace:1"])), CancellationToken.None);
+        var result = await loop.RunAsync(Context(), (_, _, _) => Task.FromResult(new DeterministicAttemptResult(InvariantOutcome.Pass, ["trace:1"])), CancellationToken.None);
         Assert.False(result.VerifiedViolation);
         Assert.Equal(CampaignOutcome.CompletedWithoutFinding, result.Outcome);
 
@@ -79,15 +79,33 @@ public sealed class ApprovalAndStrategyTests
             recoveredAttempt: new DeterministicAttemptResult(InvariantOutcome.Fail, ["trace:recovered"]));
         var recovered = await loop.RunAsync(
             recoveredContext,
-            (_, _) => throw new InvalidOperationException("A checkpointed deterministic attempt must not be executed again."),
+            (_, _, _) => throw new InvalidOperationException("A checkpointed deterministic attempt must not be executed again."),
             CancellationToken.None);
         Assert.True(recovered.VerifiedViolation);
         Assert.Equal(CampaignOutcome.VerifiedViolation, recovered.Outcome);
 
         var exhausted = await new AdaptiveStrategyLoop(new FailingStrategist())
-            .RunAsync(Context(), (_, _) => Task.FromResult(new DeterministicAttemptResult(InvariantOutcome.Pass, ["trace:budget"], 2)), CancellationToken.None);
+            .RunAsync(Context(), (_, _, _) => Task.FromResult(new DeterministicAttemptResult(InvariantOutcome.Pass, ["trace:budget"], 2)), CancellationToken.None);
         Assert.Equal(CampaignOutcome.BudgetExhausted, exhausted.Outcome);
         Assert.Equal(2, exhausted.ModelCalls);
+        Assert.Equal(2, exhausted.RequestsConsumed);
+    }
+
+    [Fact]
+    public async Task Adaptive_loop_reserves_manual_setup_before_starting_an_attempt()
+    {
+        var budget = new ExperimentBudget(10, 10, 10, 1, TimeSpan.FromSeconds(30), 0);
+        var context = new AdaptiveCampaignContext(Guid.NewGuid(), new CampaignSettings(10, "simultaneous-start", 0),
+            ["simultaneous-start"], budget, 1, fixedRequestsPerAttempt: 1);
+        var calls = 0;
+
+        var result = await new AdaptiveStrategyLoop(new FixedStrategist(
+                new StrategyDecision(AgentActionKind.Stop, 10, "simultaneous-start", 0, "Done.", "strategy-v1", "fake", "i-1")))
+            .RunAsync(context, (_, _, _) => { calls++; return Task.FromResult(new DeterministicAttemptResult(InvariantOutcome.Pass, [])); }, CancellationToken.None);
+
+        Assert.Equal(CampaignOutcome.BudgetExhausted, result.Outcome);
+        Assert.Equal(0, calls);
+        Assert.Equal(0, result.RequestsConsumed);
     }
 
     [Fact]

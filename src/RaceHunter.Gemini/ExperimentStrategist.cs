@@ -8,6 +8,7 @@ namespace RaceHunter.Gemini;
 public sealed class ExperimentStrategist(IStructuredModelClient modelClient) : IExperimentStrategist
 {
     private const string ModelId = "gemini-3.5-flash";
+    private static readonly System.Diagnostics.ActivitySource Activities = new("RaceHunter");
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
@@ -15,6 +16,9 @@ public sealed class ExperimentStrategist(IStructuredModelClient modelClient) : I
 
     public async Task<StrategyDecision> SelectNextAsync(StrategySelectionContext context, CancellationToken cancellationToken)
     {
+        using var activity = Activities.StartActivity("racehunter.model.strategy", System.Diagnostics.ActivityKind.Client);
+        activity?.SetTag("racehunter.run.id", context.ExperimentId.ToString());
+        activity?.SetTag("racehunter.model.id", ModelId);
         if (context.ModelCallsConsumed >= context.Budget.MaxModelCalls)
             throw new ModelOutputException(ModelOutcome.BudgetExhausted, "model-call budget exhausted");
         var input = BuildInput(context);
@@ -22,14 +26,22 @@ public sealed class ExperimentStrategist(IStructuredModelClient modelClient) : I
             new ModelRequest(ModelId, "strategy-v1", "strategy-v1", input, AgentSchemas.StrategyV1, false),
             1,
             cancellationToken);
-        if (TryValidate(first, context, 1, out var decision, out var diagnostic)) return decision!;
+        if (TryValidate(first, context, 1, out var decision, out var diagnostic))
+        {
+            activity?.SetTag("racehunter.model.invocation_id", decision!.ModelInvocationId);
+            return decision!;
+        }
         if (context.ModelCallsConsumed + 1 >= context.Budget.MaxModelCalls)
             throw new ModelOutputException(ModelOutcome.BudgetExhausted, "model-call budget exhausted before repair", modelCallsConsumed: 1);
         var repaired = await GenerateCountedAsync(
             new ModelRequest(ModelId, "strategy-v1", "strategy-v1", $"{input}\nThe previous JSON was rejected: {diagnostic}. Repair only the JSON.", AgentSchemas.StrategyV1, true),
             2,
             cancellationToken);
-        if (TryValidate(repaired, context, 2, out decision, out diagnostic)) return decision!;
+        if (TryValidate(repaired, context, 2, out decision, out diagnostic))
+        {
+            activity?.SetTag("racehunter.model.invocation_id", decision!.ModelInvocationId);
+            return decision!;
+        }
         throw new ModelOutputException(ModelOutcome.InvalidOutput, diagnostic, modelCallsConsumed: 2);
     }
 

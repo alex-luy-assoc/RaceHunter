@@ -55,7 +55,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/runs/$runId/events?after=0"
 Invoke-RestMethod -Uri "http://localhost:8080/api/runs/$runId/traces?after=0"
 ```
 
-The final response reports deterministic `Fail` evidence when successful orders exceed the configured maximum. `POST /api/runs/{runId}/cancel` persists an idempotent cancellation request; an active manual execution checks durable cancellation every 200 ms and stops new target work.
+The final response reports deterministic `Fail` evidence when successful orders exceed the configured maximum. `POST /api/runs/{runId}/cancel` persists an idempotent cancellation request; manual execution polls every 200 ms and autonomous Pub/Sub campaigns poll every 250 ms, stopping scheduling and persisting `Cancelled` within the two-second contract.
 
 The full UI journey starts at `http://localhost:8080/hunts/new`. After a verified run, `GET /api/runs/{runId}` exposes its `findingId`; `GET /api/findings/{findingId}` returns the persisted finding projection; and `POST /api/findings/{findingId}/replays` executes the server-owned fixed-target replay with a required idempotency key. The Phase 4 portability gate uses a fresh Compose volume and follows that plan/approve/run/finding/Verify Fix path through the API, worker, reference target, PostgreSQL, and Pub/Sub emulator. The finding and replay subset is documented in `docs/openapi.json`.
 
@@ -63,8 +63,28 @@ Run `./scripts/run-real-playwright.ps1` from PowerShell for the non-mocked brows
 
 The demo reset endpoint is disabled when `DemoControl:Key` is absent. Compose supplies the development-only `X-Demo-Control-Key: local-demo-only`; staging receives a generated key through a least-privilege Secret Manager reference and stores no key value in the repository.
 
-### Google Cloud
+### Manual targets and safety
 
-Terraform under `deploy/terraform` preserves the same three-image architecture and provisions Cloud Run, Pub/Sub, Cloud SQL, Secret Manager, IAM, logging/trace APIs, and an optional budget. Do not run `deploy/scripts/deploy.ps1` without explicit approval: it rejects execution unless `-ApproveBillableResources` is supplied.
+The public sandbox does not show manual target configuration. In local Development, the New Hunt page exposes an opt-in admin form; outside Development the capability is absent. Set `ManualTargets__AdminToken` from a local secret source or call `POST /api/admin/targets` with that bearer token. The request accepts an HTTPS base URL, exact host allowlist, authorization acknowledgement, stable GET/POST operation IDs, bounded JSON request templates, deterministic metric-to-JSON-path observations, optional setup operation, sensitive JSON paths, and a Secret Manager reference shaped like `projects/<project>/secrets/<secret>/versions/<version>`. Templates permit only `actorId`, `runId`, `executionKey`, and `checkpoint` placeholders. It never accepts a credential value. An authenticated `POST /api/hunts` may then supply the returned `targetId`; that immutable target snapshot constrains both planning and execution.
 
-Cloud Run service IAM, API-to-worker identity tokens, OpenTelemetry/Cloud proof, staging rollout, and deployed smoke validation remain Phase 5 work. Creating or contacting billable Google Cloud resources still requires explicit approval.
+Manual destination validation rejects user-info URLs, non-HTTPS destinations outside explicit Development hosts, wildcards, metadata hostnames, loopback/private/link-local/multicast/reserved ranges, mixed public/private DNS answers, alternate ports, unapproved methods/paths/templates, and redirects. The safe client bypasses proxies, disables automatic redirects, pins each connection to a freshly validated address, and caps evidence bodies at one MiB. Authorization, cookies, API keys, demo-control keys, and configured JSON fields are redacted before evidence or model use. Numeric observations are extracted only through the configured bounded JSON paths. A finding requires at least two deterministic failures in three equivalent external replays; its minimized artifact embeds the complete authorized target snapshot and replay refuses a changed snapshot. For staging, list only the referenced Secret Manager secret IDs in Terraform's `manual_target_secret_ids`; Terraform grants the worker per-secret accessor IAM and never stores secret data.
+
+### Observability
+
+The API, worker, and target emit structured request logs and OpenTelemetry traces/metrics. W3C `traceparent` and `tracestate` span API → Pub/Sub/worker → target/model → finding/replay, with work, run, attempt, actor, step, request, model invocation, finding, and replay-artifact correlations. Metrics cover work, target requests/latency, model calls, invariant outcomes, findings, replays, and cancellation latency. Compose sends no telemetry unless `OTEL_EXPORTER_OTLP_ENDPOINT` is explicitly configured. Terraform supplies a Google-built collector sidecar to each application service and exports application traces to Cloud Trace and metrics to Managed Service for Prometheus. The Finding page Cloud Proof panel queries persisted run, plan, worker revision, model invocation, trace-event, and finding evidence rather than echoing caller input.
+
+### Google Cloud staging
+
+Terraform under `deploy/terraform` preserves the same three application images and provisions Cloud Run, Pub/Sub/DLQ, Cloud SQL, Secret Manager, least-privilege IAM, Google-built collector sidecars, hard service scale ceilings, deletion protection, and an optional budget. Only the API grants `allUsers`; worker and target keep internet-routable `run.app` ingress so authenticated service-to-service calls work without an absent VPC route, while scoped `run.invoker` IAM still denies unauthenticated callers. Pub/Sub and API use exact-audience OIDC identity tokens for the IAM-private worker, and the worker does the same for the target. Staging caps the worker at one instance and one inbound request so its process-wide global/target semaphores are deployment-wide while still supporting 100 logical actors inside a campaign.
+
+Validate Terraform locally without credentials or state:
+
+```powershell
+docker run --rm -v "${PWD}:/workspace" -w /workspace/deploy/terraform hashicorp/terraform:1.14.4 fmt -check -diff
+docker run --rm -v "${PWD}:/workspace" -w /workspace/deploy/terraform hashicorp/terraform:1.14.4 init -backend=false
+docker run --rm -v "${PWD}:/workspace" -w /workspace/deploy/terraform hashicorp/terraform:1.14.4 validate
+```
+
+Do not run `deploy/scripts/deploy.ps1` without explicit approval. It requires `-ApproveBillableResources`, rejects mutable image tags, validates Terraform, creates a plan, and applies only immutable `@sha256:` image digests. The deployed golden-path script separately requires the API, worker, and target URLs plus `-ApproveStagingSmoke`; it proves unauthenticated worker/target denial, bounds every request by the remaining deadline, and fails if the complete finding/fix proof exceeds four minutes. This repository has not applied Terraform or contacted a staging project.
+
+The judge narration and release evidence are in `docs/demo/demo-script.md` and `docs/demo/submission-checklist.md`; the current trust, identity, data, and telemetry paths are in `docs/architecture/system-context.md`.
