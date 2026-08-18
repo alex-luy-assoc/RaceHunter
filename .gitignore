@@ -1,0 +1,22 @@
+# ALA local/advisory state and UAT artifacts
+memory-bank/.local/
+memory-bank/uat-artifacts/
+memory-bank/.uat-credentials/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# .NET and JavaScript build outputs
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/*.tsbuildinfo
+
+# Local IDE and test artifacts
+.vs/
+.idea/
+TestResults/
+coverage/

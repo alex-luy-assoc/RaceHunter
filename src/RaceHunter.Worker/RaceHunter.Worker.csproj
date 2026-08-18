@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\RaceHunter.Application\RaceHunter.Application.csproj" />
+    <ProjectReference Include="..\RaceHunter.Contracts\RaceHunter.Contracts.csproj" />
+    <ProjectReference Include="..\RaceHunter.Infrastructure\RaceHunter.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

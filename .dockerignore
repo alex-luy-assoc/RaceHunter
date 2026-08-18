@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+.git/
+.env
+.env.*
+memory-bank/
+tests/
+deploy/
+docs/
+RaceHunter_Project_Brief.md

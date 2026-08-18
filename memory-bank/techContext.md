@@ -101,7 +101,19 @@ The source brief proposes project, target, experiment, plan generation, scenario
 - **Acceptance:** reset one inventory unit, autonomously detect oversell, minimize to two actors, replay failure, switch to fixed mode, replay pass.
 - **Cloud smoke:** deployed request, persistence, Pub/Sub dispatch, worker progress, Gemini evidence, Cloud Run health, and secret-safe logs.
 
-Exact local build, test, migration, and deployment commands are unknown until the solution skeleton is created. Record them here when verified; do not invent commands.
+Verified Phase 1 commands:
+
+- `dotnet restore RaceHunter.slnx`
+- `dotnet build RaceHunter.slnx --no-restore -c Release`
+- `dotnet test RaceHunter.slnx --no-build -c Release`
+- `npm ci --prefix src/RaceHunter.Web`
+- `npm run lint --prefix src/RaceHunter.Web`
+- `npm run build --prefix src/RaceHunter.Web`
+- `docker compose config --quiet`
+- `docker compose build`
+- `docker compose up -d` followed by API, worker, and reference-target health plus API persistence and target reset smoke requests
+
+The main and reference-target EF Core migrations apply automatically at host startup. Terraform commands remain unverified because Terraform is not installed, and Google Cloud apply/smoke remains approval-gated.
 
 ## Open Technical Decisions
 
