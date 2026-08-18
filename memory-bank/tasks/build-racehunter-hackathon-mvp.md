@@ -434,6 +434,7 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - Phase 1/5 | Google Cloud smoke verification | Deferred because the user explicitly prohibited deploying billable Google Cloud resources without approval; Docker/Terraform implementation and local validation remain in scope.
 - Phase 1/5 | Terraform CLI validation | Deferred because Terraform is not installed in the local environment; configuration was reviewed but `terraform fmt`, `init`, and `validate` were not run.
 - Phase 1/5 | Local Pub/Sub emulator startup | Deferred to Phase 3 when the Pub/Sub message contract and authenticated push endpoint are implemented; Phase 1 Compose proves the API, worker, reference target, and isolated PostgreSQL services.
+- Phase 2/5 | `ManualHuntExecutor` trace/progress persistence | Trace evidence commits before its progress event in a separate transaction; a crash can leave an unreferenced but queryable trace. The compliance reviewer accepted this as a recoverable Minor because acknowledged evidence cannot be lost.
 
 ### Active Sub-Agents
 - None
