@@ -14,6 +14,7 @@ internal sealed class WorkerReplayExecution(HttpClient client) : IReplayExecutio
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
+        idempotencyKey = VerifyFix.NormalizeIdempotencyKey(idempotencyKey);
         artifact.VerifyIntegrity();
         using var response = await client.PostAsJsonAsync("/internal/replays", new WorkerReplayRequest(
             artifact.Id,

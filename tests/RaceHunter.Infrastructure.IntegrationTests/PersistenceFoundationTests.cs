@@ -1,6 +1,9 @@
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using RaceHunter.Application.Abstractions;
 using RaceHunter.Application.Projects;
 using RaceHunter.Domain.Budgets;
+using RaceHunter.Domain.Invariants;
 using RaceHunter.Domain.Projects;
 using RaceHunter.Domain.Replays;
 using RaceHunter.Domain.Runs;
@@ -155,6 +158,30 @@ public sealed class PersistenceFoundationTests(PersistenceDatabaseFixture fixtur
         Assert.NotNull(loaded);
         Assert.Equal(artifact.Fingerprint, loaded.Fingerprint);
         Assert.Equal(artifact.CreatedAtUtc, loaded.CreatedAtUtc);
+    }
+
+    [Fact]
+    public async Task Finding_probe_checkpoint_is_durably_keyed_and_duplicate_delivery_reuses_the_same_outcome()
+    {
+        await using var context = CreateContext();
+        await context.Database.MigrateAsync();
+        var run = ExperimentRun.Queue(Guid.NewGuid(), ExperimentBudget.PublicSandbox, DateTime.UtcNow);
+        await new RunStore(context).AddAsync(run, CancellationToken.None);
+        var store = new FindingProbeCheckpointStore(context);
+        var checkpoint = new FindingProbeCheckpoint(
+            run.Id, "reproduction:1", "reproduction", 1, "{\"strategy\":\"checkpoint-interleaving\"}",
+            InvariantOutcome.Fail.ToString(), ["trace:1", "trace:2"], 2, DateTime.UtcNow);
+
+        await store.SaveAsync(checkpoint, CancellationToken.None);
+        context.ChangeTracker.Clear();
+        await store.SaveAsync(checkpoint, CancellationToken.None);
+        context.ChangeTracker.Clear();
+        var loaded = await store.GetAsync(run.Id, "reproduction:1", CancellationToken.None);
+
+        Assert.NotNull(loaded);
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(checkpoint.CandidateJson), JsonNode.Parse(loaded.CandidateJson)));
+        Assert.Equal(checkpoint.TraceReferences, loaded.TraceReferences);
+        Assert.Equal(1, await context.FindingProbeCheckpoints.CountAsync(item => item.RunId == run.Id));
     }
 
     private RaceHunterDbContext CreateContext() => new(

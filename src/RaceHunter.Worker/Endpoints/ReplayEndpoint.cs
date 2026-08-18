@@ -15,6 +15,7 @@ internal static class ReplayEndpoint
         {
             try
             {
+                var idempotencyKey = VerifyFix.NormalizeIdempotencyKey(request.IdempotencyKey);
                 var artifact = ReplayArtifact.Rehydrate(
                     request.ArtifactId,
                     request.FindingId,
@@ -28,7 +29,7 @@ internal static class ReplayEndpoint
                     request.CreatedAtUtc,
                     request.Fingerprint);
                 var mode = Enum.Parse<ReplayTargetMode>(request.TargetMode);
-                var result = await execution.ExecuteAsync(artifact, mode, request.IdempotencyKey, cancellationToken);
+                var result = await execution.ExecuteAsync(artifact, mode, idempotencyKey, cancellationToken);
                 return Results.Ok(new WorkerReplayResponse(
                     result.Id,
                     result.ArtifactId,

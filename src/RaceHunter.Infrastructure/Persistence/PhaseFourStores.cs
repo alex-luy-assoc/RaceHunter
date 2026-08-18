@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using RaceHunter.Application.Abstractions;
 using RaceHunter.Application.Hunts;
 using RaceHunter.Domain.Findings;
@@ -230,4 +232,47 @@ internal sealed class FindingStore(RaceHunterDbContext context) : IFindingStore,
 
     private static string[] DeserializeReferences(string json) =>
         JsonSerializer.Deserialize<string[]>(json, JsonOptions) ?? [];
+}
+
+internal sealed class FindingProbeCheckpointStore(RaceHunterDbContext context) : IFindingProbeCheckpointStore
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    public async Task<FindingProbeCheckpoint?> GetAsync(Guid runId, string probeKey, CancellationToken cancellationToken)
+    {
+        var item = await context.FindingProbeCheckpoints.AsNoTracking()
+            .SingleOrDefaultAsync(value => value.RunId == runId && value.ProbeKey == probeKey, cancellationToken);
+        return item is null ? null : new FindingProbeCheckpoint(
+            item.RunId, item.ProbeKey, item.Phase, item.Ordinal, item.CandidateJson, item.Outcome,
+            JsonSerializer.Deserialize<string[]>(item.TraceReferencesJson, JsonOptions) ?? [],
+            item.RequestsConsumed, item.CompletedAtUtc);
+    }
+
+    public async Task SaveAsync(FindingProbeCheckpoint checkpoint, CancellationToken cancellationToken)
+    {
+        context.FindingProbeCheckpoints.Add(new FindingProbeCheckpointRecord
+        {
+            RunId = checkpoint.RunId,
+            ProbeKey = checkpoint.ProbeKey,
+            Phase = checkpoint.Phase,
+            Ordinal = checkpoint.Ordinal,
+            CandidateJson = checkpoint.CandidateJson,
+            Outcome = checkpoint.Outcome,
+            TraceReferencesJson = JsonSerializer.Serialize(checkpoint.TraceReferences, JsonOptions),
+            RequestsConsumed = checkpoint.RequestsConsumed,
+            CompletedAtUtc = checkpoint.CompletedAtUtc
+        });
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            context.ChangeTracker.Clear();
+            var existing = await GetAsync(checkpoint.RunId, checkpoint.ProbeKey, cancellationToken);
+            if (existing is null || existing.Outcome != checkpoint.Outcome ||
+                !JsonNode.DeepEquals(JsonNode.Parse(existing.CandidateJson), JsonNode.Parse(checkpoint.CandidateJson)))
+                throw;
+        }
+    }
 }

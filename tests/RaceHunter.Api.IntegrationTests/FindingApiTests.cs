@@ -108,6 +108,27 @@ public sealed class FindingApiTests(ApiDatabaseFixture fixture) : IClassFixture<
     }
 
     [Fact]
+    public async Task Verify_fix_rejects_oversized_key_before_worker_execution_and_normalizes_padding()
+    {
+        var finding = await SeedFindingAsync();
+        var execution = new CountingPassingReplayExecution();
+        await using var factory = CreateFactory(execution);
+        using var client = factory.CreateClient();
+
+        using var oversized = await client.PostAsJsonAsync($"/api/findings/{finding.Id}/replays", new VerifyFixRequest(new string('x', 161)));
+        Assert.Equal(HttpStatusCode.BadRequest, oversized.StatusCode);
+        Assert.Equal("application/problem+json", oversized.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(0, execution.Calls);
+
+        var paddedExecution = new CapturingReplayExecution();
+        await using var paddedFactory = CreateFactory(paddedExecution);
+        using var paddedClient = paddedFactory.CreateClient();
+        using var padded = await paddedClient.PostAsJsonAsync($"/api/findings/{finding.Id}/replays", new VerifyFixRequest("  padded-api-key  "));
+        Assert.Equal(HttpStatusCode.Accepted, padded.StatusCode);
+        Assert.Equal("padded-api-key", paddedExecution.LastKey);
+    }
+
+    [Fact]
     public async Task Verify_fix_maps_worker_transport_failure_to_recoverable_problem_details()
     {
         var finding = await SeedFindingAsync();
@@ -232,5 +253,17 @@ public sealed class FindingApiTests(ApiDatabaseFixture fixture) : IClassFixture<
     {
         public Task<ReplayAttempt> ExecuteAsync(ReplayArtifact artifact, ReplayTargetMode targetMode, string idempotencyKey, CancellationToken cancellationToken) =>
             throw new HttpRequestException("worker unavailable");
+    }
+
+    private sealed class CapturingReplayExecution : IReplayExecution
+    {
+        public string? LastKey { get; private set; }
+
+        public Task<ReplayAttempt> ExecuteAsync(ReplayArtifact artifact, ReplayTargetMode targetMode, string idempotencyKey, CancellationToken cancellationToken)
+        {
+            LastKey = idempotencyKey;
+            return Task.FromResult(ReplayAttempt.Complete(Guid.NewGuid(), artifact.Id, targetMode, InvariantOutcome.Pass,
+                ["trace:fixed"], artifact.Fingerprint, idempotencyKey, Utc(8)));
+        }
     }
 }

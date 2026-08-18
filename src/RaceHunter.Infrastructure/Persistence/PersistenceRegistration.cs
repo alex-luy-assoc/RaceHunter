@@ -26,6 +26,7 @@ public static class PersistenceRegistration
         services.AddScoped<IFindingStore>(provider => provider.GetRequiredService<FindingStore>());
         services.AddScoped<IReplayStore>(provider => provider.GetRequiredService<FindingStore>());
         services.AddScoped<IAgentIterationReader>(provider => provider.GetRequiredService<FindingStore>());
+        services.AddScoped<IFindingProbeCheckpointStore, FindingProbeCheckpointStore>();
         services.AddScoped<IWorkInbox, WorkInboxStore>();
         services.AddScoped<IWorkSubjectStore, WorkSubjectStore>();
         services.AddScoped<IAgentDecisionCheckpointStore, AgentDecisionCheckpointStore>();

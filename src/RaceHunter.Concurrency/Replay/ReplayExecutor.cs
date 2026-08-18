@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using RaceHunter.Domain.Invariants;
 using RaceHunter.Domain.Replays;
 
@@ -19,11 +22,31 @@ public sealed class ReplayCandidate
     public int ActorCount => Steps.Select(item => item.ActorId).Distinct().Count();
 }
 
-public sealed record ReplayObservation(InvariantOutcome Outcome, IReadOnlyList<string> TraceReferences);
+public sealed record ReplayObservation(InvariantOutcome Outcome, IReadOnlyList<string> TraceReferences, int RequestsConsumed = -1);
 
 public interface IReplayProbe
 {
     Task<ReplayObservation> ExecuteAsync(ReplayCandidate candidate, ReplayTargetMode mode, CancellationToken cancellationToken);
+}
+
+public interface IKeyedReplayProbe : IReplayProbe
+{
+    Task<ReplayObservation> ExecuteAsync(string probeKey, ReplayCandidate candidate, ReplayTargetMode mode, CancellationToken cancellationToken);
+}
+
+public static class ReplayProbeKey
+{
+    public static string ForCandidate(string prefix, ReplayCandidate candidate)
+    {
+        var json = JsonSerializer.Serialize(new
+        {
+            candidate.Strategy,
+            candidate.Seed,
+            Steps = candidate.Steps.Select(item => new { item.ActorId, item.StepId, item.OperationId, item.OffsetMilliseconds })
+        });
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
+        return $"{prefix}:{hash}";
+    }
 }
 
 public sealed class ReplayExecutor(Func<Guid>? idFactory = null)

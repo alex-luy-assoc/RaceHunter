@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using RaceHunter.Application.Abstractions;
 using RaceHunter.Application.Agents;
@@ -21,6 +23,7 @@ internal sealed class CampaignRunner(
     ReferenceCampaignAttemptExecutor attemptExecutor,
     ReferenceInventoryTargetClient target,
     IFindingStore findings,
+    IFindingProbeCheckpointStore probeCheckpoints,
     ITraceStore traces,
     IConfiguration configuration) : ICampaignWorkHandler
 {
@@ -145,7 +148,7 @@ internal sealed class CampaignRunner(
 
             if (result.Outcome == CampaignOutcome.VerifiedViolation)
             {
-                var findingId = await FinalizeFindingAsync(run, plan, invariant, result, attemptExecutor, target, findings, traces, configuration, bounded.Token);
+                var findingId = await FinalizeFindingAsync(run, plan, invariant, result, attemptExecutor, target, findings, probeCheckpoints, traces, configuration, bounded.Token);
                 run.AppendEvent(
                     findingId.HasValue ? "finding-ready" : "reproduction-inconclusive",
                     findingId.HasValue
@@ -213,40 +216,50 @@ internal sealed class CampaignRunner(
         ReferenceCampaignAttemptExecutor attemptExecutor,
         ReferenceInventoryTargetClient target,
         IFindingStore findings,
+        IFindingProbeCheckpointStore probeCheckpoints,
         ITraceStore traces,
         IConfiguration configuration,
         CancellationToken cancellationToken)
     {
+        var existingFindingId = await findings.GetIdByRunAsync(run.Id, cancellationToken);
+        if (existingFindingId.HasValue) return existingFindingId;
         var failedSettings = result.FailedSettings ?? throw new InvalidOperationException("Verified campaign evidence is missing its failed settings.");
         var failedAttempt = result.FailedAttempt ?? throw new InvalidOperationException("Verified campaign evidence is missing its deterministic attempt.");
         var original = CreateReplayCandidate(failedSettings, failedAttempt, plan.Strategy.Seed);
         var persistedTraces = await traces.GetAsync(run.Id, 0, cancellationToken);
-        var probe = new CampaignReplayProbe(
-            run,
-            invariant,
-            attemptExecutor,
-            target,
-            configuration["ReferenceTarget:DemoControlKey"]
-                ?? throw new InvalidOperationException("ReferenceTarget:DemoControlKey is required for measured reproduction."),
-            Math.Max(0, run.Budget.MaxRequests - persistedTraces.Count));
+        var persistedRequestIds = persistedTraces.Select(item => item.RequestId).ToHashSet(StringComparer.Ordinal);
+        var demoControlKey = configuration["ReferenceTarget:DemoControlKey"]
+            ?? throw new InvalidOperationException("ReferenceTarget:DemoControlKey is required for measured reproduction.");
+        var probe = new DurableFindingReplayProbe(
+            run.Id,
+            Math.Max(0, run.Budget.MaxRequests - persistedTraces.Count),
+            probeCheckpoints,
+            (probeKey, candidate, _, token) => target.CountMissingOrdersAsync(
+                candidate,
+                $"{run.Id:N}:{probeKey}",
+                demoControlKey,
+                persistedRequestIds,
+                token),
+            async (probeKey, candidate, mode, token) =>
+            {
+                await target.ResetAsync(mode, demoControlKey, $"{run.Id:N}:{probeKey}:reset", token);
+                var attempt = await attemptExecutor.ExecuteReplayAsync(
+                    run.Id,
+                    run.Budget,
+                    invariant,
+                    candidate,
+                    $"{run.Id:N}:{probeKey}",
+                    token);
+                return new ReplayObservation(attempt.InvariantOutcome, attempt.TraceReferences, attempt.RequestsConsumed);
+            });
         var reproduction = await new ReproductionVerifier().VerifyReferenceAsync(original, probe, cancellationToken);
         if (!reproduction.Verified) return null;
         var minimized = await new FailureMinimizer().MinimizeAsync(original, probe, cancellationToken);
         if (minimized.Candidate.ActorCount != 2) return null;
 
-        var findingId = Guid.NewGuid();
-        var artifact = ReplayArtifact.Create(
-            Guid.NewGuid(),
-            findingId,
-            plan.PlanVersion,
-            "invariant-v1",
-            "reference-inventory:quantity=1",
-            minimized.Candidate.Strategy,
-            minimized.Candidate.Seed,
-            minimized.Candidate.Steps,
-            "{\"quantity\":1}",
-            DateTime.UtcNow);
-        var vulnerableReplay = await probe.ExecuteAsync(minimized.Candidate, ReplayTargetMode.Vulnerable, cancellationToken);
+        var artifact = CreateReplayArtifact(run, plan, minimized.Candidate);
+        var findingId = artifact.FindingId;
+        var vulnerableReplay = await probe.ExecuteAsync("proof:vulnerable", minimized.Candidate, ReplayTargetMode.Vulnerable, cancellationToken);
         if (vulnerableReplay.Outcome != InvariantOutcome.Fail) return null;
         var finding = Finding.CreateReference(
             findingId,
@@ -255,7 +268,7 @@ internal sealed class CampaignRunner(
             new InvariantResult(InvariantOutcome.Fail, failedAttempt.TraceReferences, "Successful orders exceeded available inventory."),
             reproduction.Attempts.Select(item => new ReproductionAttempt(item.Attempt, item.Outcome, item.TraceReferences)).ToArray(),
             artifact,
-            DateTime.UtcNow,
+            artifact.CreatedAtUtc,
             "Gemini strategy activity is advisory; deterministic evaluator evidence verified and minimized this finding.");
         var vulnerableAttempt = ReplayAttempt.Complete(
             Guid.NewGuid(),
@@ -270,6 +283,24 @@ internal sealed class CampaignRunner(
         return findingId;
     }
 
+    internal static ReplayArtifact CreateReplayArtifact(ExperimentRun run, ScenarioPlan plan, ReplayCandidate candidate) => ReplayArtifact.Create(
+        DeterministicId(run.Id, "replay-artifact"),
+        DeterministicId(run.Id, "finding"),
+        plan.PlanVersion,
+        "invariant-v1",
+        "reference-inventory:quantity=1",
+        candidate.Strategy,
+        candidate.Seed,
+        candidate.Steps,
+        "{\"quantity\":1}",
+        run.StartedAtUtc ?? run.CreatedAtUtc);
+
+    private static Guid DeterministicId(Guid runId, string purpose)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{runId:N}:{purpose}"));
+        return new Guid(hash.AsSpan(0, 16));
+    }
+
     internal static ReplayCandidate CreateReplayCandidate(
         CampaignSettings failedSettings,
         DeterministicAttemptResult failedAttempt,
@@ -281,31 +312,6 @@ internal sealed class CampaignRunner(
             failedSettings.Strategy,
             seed,
             exactSchedule.Select(step => new ReplayStep(step.ActorId, "place-order", "place-order", step.OffsetMilliseconds)));
-    }
-
-    private sealed class CampaignReplayProbe(
-        ExperimentRun run,
-        InvariantDefinition invariant,
-        ReferenceCampaignAttemptExecutor attemptExecutor,
-        ReferenceInventoryTargetClient target,
-        string demoControlKey,
-        int remainingRequests) : IReplayProbe
-    {
-        private int remaining = remainingRequests;
-
-        public async Task<ReplayObservation> ExecuteAsync(ReplayCandidate candidate, ReplayTargetMode mode, CancellationToken cancellationToken)
-        {
-            if (candidate.Steps.Count > remaining) return new ReplayObservation(InvariantOutcome.Inconclusive, []);
-            remaining -= candidate.Steps.Count;
-            await target.ResetAsync(mode, demoControlKey, cancellationToken);
-            var attempt = await attemptExecutor.ExecuteReplayAsync(
-                run.Id,
-                run.Budget,
-                invariant,
-                candidate,
-                cancellationToken);
-            return new ReplayObservation(attempt.InvariantOutcome, attempt.TraceReferences);
-        }
     }
 
     internal static RecoveryState RecoverSettings(WorkCheckpoint? checkpoint, ScenarioPlan plan)

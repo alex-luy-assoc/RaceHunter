@@ -16,7 +16,7 @@ public sealed class VerifyFix(IFindingStore findings, IReplayStore replays, IRep
 {
     public async Task<ReplayAttempt> ExecuteAsync(Guid findingId, string idempotencyKey, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(idempotencyKey)) throw new ArgumentException("An idempotency key is required.", nameof(idempotencyKey));
+        idempotencyKey = NormalizeIdempotencyKey(idempotencyKey);
         var finding = await findings.GetAsync(findingId, cancellationToken)
             ?? throw new KeyNotFoundException("The finding does not exist.");
         var artifact = await replays.GetArtifactAsync(finding.ReplayArtifactId, cancellationToken)
@@ -30,5 +30,13 @@ public sealed class VerifyFix(IFindingStore findings, IReplayStore replays, IRep
                 throw new InvalidOperationException("Verify Fix must replay the original immutable artifact without mutation.");
             return attempt;
         }, cancellationToken);
+    }
+
+    public static string NormalizeIdempotencyKey(string? idempotencyKey)
+    {
+        var normalized = idempotencyKey?.Trim() ?? string.Empty;
+        if (normalized.Length is < 1 or > 160)
+            throw new ArgumentException("The idempotency key must contain between 1 and 160 characters.", nameof(idempotencyKey));
+        return normalized;
     }
 }

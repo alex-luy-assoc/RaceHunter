@@ -320,3 +320,22 @@ internal sealed class ReplayExecutionClaimConfiguration : IEntityTypeConfigurati
         builder.HasOne(item => item.Artifact).WithMany().HasForeignKey(item => item.ArtifactId).OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+internal sealed class FindingProbeCheckpointConfiguration : IEntityTypeConfiguration<FindingProbeCheckpointRecord>
+{
+    public void Configure(EntityTypeBuilder<FindingProbeCheckpointRecord> builder)
+    {
+        builder.ToTable("finding_probe_checkpoints");
+        builder.HasKey(item => new { item.RunId, item.ProbeKey });
+        builder.Property(item => item.RunId).HasColumnName("run_id");
+        builder.Property(item => item.ProbeKey).HasColumnName("probe_key").HasMaxLength(160).IsRequired();
+        builder.Property(item => item.Phase).HasColumnName("phase").HasMaxLength(32).IsRequired();
+        builder.Property(item => item.Ordinal).HasColumnName("ordinal");
+        builder.Property(item => item.CandidateJson).HasColumnName("candidate_json").HasColumnType("jsonb").IsRequired();
+        builder.Property(item => item.Outcome).HasColumnName("outcome").HasMaxLength(32).IsRequired();
+        builder.Property(item => item.TraceReferencesJson).HasColumnName("trace_references_json").HasColumnType("jsonb").IsRequired();
+        builder.Property(item => item.RequestsConsumed).HasColumnName("requests_consumed");
+        builder.Property(item => item.CompletedAtUtc).HasColumnName("completed_at_utc").HasColumnType("timestamp with time zone");
+        builder.HasOne<RunRecord>().WithMany().HasForeignKey(item => item.RunId).OnDelete(DeleteBehavior.Cascade);
+    }
+}

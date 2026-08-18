@@ -198,6 +198,20 @@ internal sealed class RaceHunterDbContextModelSnapshot : ModelSnapshot
             entity.HasKey("FindingId", "Attempt");
             entity.ToTable("finding_reproductions");
         });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.FindingProbeCheckpointRecord", entity =>
+        {
+            entity.Property<Guid>("RunId").HasColumnType("uuid").HasColumnName("run_id");
+            entity.Property<string>("ProbeKey").IsRequired().HasMaxLength(160).HasColumnType("character varying(160)").HasColumnName("probe_key");
+            entity.Property<string>("CandidateJson").IsRequired().HasColumnType("jsonb").HasColumnName("candidate_json");
+            entity.Property<DateTime>("CompletedAtUtc").HasColumnType("timestamp with time zone").HasColumnName("completed_at_utc");
+            entity.Property<string>("Outcome").IsRequired().HasMaxLength(32).HasColumnType("character varying(32)").HasColumnName("outcome");
+            entity.Property<int>("Ordinal").HasColumnType("integer").HasColumnName("ordinal");
+            entity.Property<string>("Phase").IsRequired().HasMaxLength(32).HasColumnType("character varying(32)").HasColumnName("phase");
+            entity.Property<int>("RequestsConsumed").HasColumnType("integer").HasColumnName("requests_consumed");
+            entity.Property<string>("TraceReferencesJson").IsRequired().HasColumnType("jsonb").HasColumnName("trace_references_json");
+            entity.HasKey("RunId", "ProbeKey");
+            entity.ToTable("finding_probe_checkpoints");
+        });
         modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.ReplayArtifactRecord", entity =>
         {
             entity.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
@@ -317,6 +331,14 @@ internal sealed class RaceHunterDbContextModelSnapshot : ModelSnapshot
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired();
             entity.Navigation("Finding");
+        });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.FindingProbeCheckpointRecord", entity =>
+        {
+            entity.HasOne("RaceHunter.Infrastructure.Persistence.RunRecord", null)
+                .WithMany()
+                .HasForeignKey("RunId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
         });
         modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.ReplayAttemptRecord", entity =>
         {

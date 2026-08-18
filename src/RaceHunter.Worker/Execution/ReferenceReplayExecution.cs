@@ -23,6 +23,7 @@ internal sealed class ReferenceReplayExecution(
         var probe = new ReferenceReplayProbe(
             scheduler,
             target,
+            CreateExecutionScope(artifact.Id, idempotencyKey),
             configuration["ReferenceTarget:DemoControlKey"]
                 ?? throw new InvalidOperationException("ReferenceTarget:DemoControlKey is required for replay."));
         var observation = await probe.ExecuteAsync(
@@ -41,9 +42,12 @@ internal sealed class ReferenceReplayExecution(
             DateTime.UtcNow);
     }
 
+    internal static string CreateExecutionScope(Guid artifactId, string idempotencyKey) => $"{artifactId:N}:{idempotencyKey}";
+
     private sealed class ReferenceReplayProbe(
         ConcurrencyScheduler scheduler,
         ReferenceInventoryTargetClient target,
+        string executionKey,
         string demoControlKey) : IReplayProbe
     {
         public async Task<ReplayObservation> ExecuteAsync(
@@ -51,14 +55,15 @@ internal sealed class ReferenceReplayExecution(
             ReplayTargetMode mode,
             CancellationToken cancellationToken)
         {
-            await target.ResetAsync(mode, demoControlKey, cancellationToken);
+            await target.ResetAsync(mode, demoControlKey, $"verify:{executionKey}:reset", cancellationToken);
             var plan = new SchedulePlan(
                 ParseKind(candidate.Strategy),
                 candidate.Seed,
                 candidate.Steps.Select((step, index) => new ScheduledActor(
                     step.ActorId,
                     TimeSpan.FromMilliseconds(step.OffsetMilliseconds),
-                    candidate.Strategy == "checkpoint-interleaving" ? index + 1 : null)).ToArray());
+                    candidate.Strategy == "checkpoint-interleaving" ? index + 1 : null,
+                    $"{index}:{step.StepId}:{step.OperationId}")).ToArray());
             var budget = new ExperimentBudget(
                 candidate.ActorCount,
                 candidate.ActorCount,
@@ -70,7 +75,7 @@ internal sealed class ReferenceReplayExecution(
             var result = await scheduler.ExecuteAsync(
                 plan,
                 budget,
-                (actor, token) => target.PlaceOrderAsync(replayRunId, actor, token),
+                (actor, token) => target.PlaceOrderAsync(replayRunId, actor, $"verify:{executionKey}", token),
                 cancellationToken);
             var invariant = new NumericBoundaryEvaluator().Evaluate(
                 new NumericBoundaryInvariant("successful-orders", 1),

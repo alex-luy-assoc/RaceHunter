@@ -24,7 +24,9 @@ public sealed class ReproductionVerifier
         for (var attempt = 1; attempt <= requiredAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var observation = await probe.ExecuteAsync(candidate, ReplayTargetMode.Vulnerable, cancellationToken);
+            var observation = probe is IKeyedReplayProbe keyed
+                ? await keyed.ExecuteAsync($"reproduction:{attempt}", candidate, ReplayTargetMode.Vulnerable, cancellationToken)
+                : await probe.ExecuteAsync(candidate, ReplayTargetMode.Vulnerable, cancellationToken);
             attempts.Add(new ReproductionAttemptResult(attempt, observation.Outcome, observation.TraceReferences.ToArray()));
         }
         var failures = attempts.Count(item => item.Outcome == InvariantOutcome.Fail);
@@ -43,7 +45,7 @@ public sealed class FailureMinimizer
             cancellationToken.ThrowIfCancellationRequested();
             if (current.ActorCount <= 2) break;
             var candidate = new ReplayCandidate(current.Strategy, current.Seed, current.Steps.Where(item => item.ActorId != actorId));
-            var observation = await probe.ExecuteAsync(candidate, ReplayTargetMode.Vulnerable, cancellationToken);
+            var observation = await ExecuteAsync(probe, ReplayProbeKey.ForCandidate($"minimize:actor:{actorId}", candidate), candidate, cancellationToken);
             if (observation.Outcome != InvariantOutcome.Fail) continue;
             current = candidate;
             accepted.Add(new ReductionDecision(ReductionKind.Actor, $"actor:{actorId}", observation.Outcome));
@@ -63,11 +65,19 @@ public sealed class FailureMinimizer
             if (selectedIndex < 0) continue;
             var candidateSteps = current.Steps.Where((_, index) => index != selectedIndex).ToArray();
             var candidate = new ReplayCandidate(current.Strategy, current.Seed, candidateSteps);
-            var observation = await probe.ExecuteAsync(candidate, ReplayTargetMode.Vulnerable, cancellationToken);
+            var observation = await ExecuteAsync(probe, ReplayProbeKey.ForCandidate($"minimize:step:{step.ActorId}:{selectedIndex}", candidate), candidate, cancellationToken);
             if (observation.Outcome != InvariantOutcome.Fail) continue;
             current = candidate;
             accepted.Add(new ReductionDecision(ReductionKind.Step, $"actor:{step.ActorId}/step:{step.StepId}", observation.Outcome));
         }
         return new MinimizationResult(current, accepted);
     }
+
+    private static Task<ReplayObservation> ExecuteAsync(
+        IReplayProbe probe,
+        string probeKey,
+        ReplayCandidate candidate,
+        CancellationToken cancellationToken) => probe is IKeyedReplayProbe keyed
+        ? keyed.ExecuteAsync(probeKey, candidate, ReplayTargetMode.Vulnerable, cancellationToken)
+        : probe.ExecuteAsync(candidate, ReplayTargetMode.Vulnerable, cancellationToken);
 }

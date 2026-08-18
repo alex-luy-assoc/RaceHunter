@@ -394,8 +394,8 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] Phase 4: Failure reproduction, deterministic minimization, immutable replay, causal timeline, judge evidence, and vulnerable-versus-fixed Playwright golden path
 - [ ] Phase 5: Security, observability, 100-actor limits, Docker/Terraform staging verification, documentation, architecture diagram, and four-minute submission package
 
-**Phase 4 Test Results**: 133/133 tests passing across 13 suites (125 .NET, 5 Vitest, 3 Playwright); 34 focused Phase 4 checks plus full regression coverage.
-**Phase 4 Code Review**: APPROVED after four adversarial iterations; security and dependency audits passed with no remaining upgrades.
+**Phase 4 Test Results**: 152/152 tests passing across 14 suites (143 .NET, 5 Vitest, 3 mocked Playwright, 1 real Compose-backed Playwright); remediation coverage includes restart boundaries, receiver idempotency, trace-aware budgets, replay-key scope, accessible minimized steps, and API validation.
+**Phase 4 Code Review**: Compliance remediation review completed after adversarial recovery, key-scope, and budget iterations; security and dependency audits passed with no remaining upgrades.
 
 ## Creative Phases
 
@@ -443,6 +443,7 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - Phase 3/5 | Deployed Pub/Sub and Cloud Run smoke | Deferred with the existing approval gate. The pinned local Pub/Sub emulator exercised the identical push envelope, inbox, lease, checkpoint, retry, and acknowledgement path.
 - Phase 3/5 | Attempt evidence/checkpoint crash gap | The worker persists deterministic trace evidence before its attempt checkpoint in separate transactions, preserving the accepted Phase 2 recoverable Minor: a crash in that narrow gap can leave an unreferenced but queryable trace, while a persisted attempt checkpoint prevents target re-execution after lease recovery.
 - Phase 4/5 | Replay dispatch latency | Verify Fix executes through the private worker boundary with a 30-second bounded HTTP request and durable per-artifact claim rather than a Pub/Sub replay message; the API never executes target work, and Phase 5 retains Cloud Run identity-token wiring and any asynchronous replay hardening.
+- Phase 4/5 | Crash-gap transport | A process loss after the reference target commits but before RaceHunter records the result can repeat the HTTP transport on recovery. Stable receiver-side idempotency reuses the committed result without repeating the mutation; authenticated status preflight and trace correlation preserve the logical request budget.
 
 ### Active Sub-Agents
 - None
@@ -479,6 +480,9 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - Phase 4 integration verification: COMPLETE — 133/133 tests passed across 13 suites (125 .NET, 5 Vitest, 3 Playwright); warning-free Release and Vite builds, .NET formatting, TypeScript lint, Compose configuration, Redocly OpenAPI validation, NuGet/npm vulnerability audits, and three fresh image builds passed (2026-08-18)
 - Phase 4 Docker golden path: COMPLETE — a fresh-volume Compose plan/approve/run produced the exact verified message, three failed reproductions, a two-actor/two-step artifact, one-attempt causal timeline, persisted Agent Activity, vulnerable `Fail`, fixed `Pass`, one fixed attempt across distinct keys, and an unchanged artifact; containers and both test volumes were removed afterward (2026-08-18)
 - Phase 4 review/documentation: COMPLETE — four adversarial review iterations closed exact-schedule, recovery, claim-race, no-transaction-across-HTTP, no-inline-SQL, API-contract, dependency, and evidence-projection findings; README, technical context, system patterns, and OpenAPI 3.1 were updated. Cloud Run IAM/ID tokens, observability, staging, and deployment remain Phase 5; no credentials, Google Cloud contact, remote, push, PR, or deployment occurred (2026-08-18)
+- Phase 4 compliance remediation RED gate: COMPLETE — adversarial tests first exposed absent per-probe restart state, receiver crash-gap idempotency, accessible minimized schedule rendering, oversized/padded replay-key validation, and a real browser/backend journey; further RED cases covered actor-step and cross-artifact key collisions, partial checkpoint recovery, and pre-call request-budget reservation (2026-08-18)
+- Phase 4 compliance remediation GREEN gate: COMPLETE — PostgreSQL now stores keyed reproduction/minimization/proof checkpoints; the reference target durably reuses scoped reset/order outcomes and reports completed correlations for trace-aware preflight; deterministic final IDs/fingerprints survive restart; the UI renders actor/operation/step/offset evidence; normalized 1..160 replay keys fail with RFC 9457 before target work; and real Compose-backed Playwright proves vulnerable/fixed plus refresh without route mocks (2026-08-18)
+- Phase 4 compliance remediation integration: COMPLETE — 152/152 checks passed across 14 suites, including 143 .NET, 5 Vitest, 3 mocked Playwright, and 1 real Docker-backed Playwright; Release/Vite builds, formatting, lint, Compose/OpenAPI validation, security audits, and diff checks passed, and isolated test resources were removed (2026-08-18)
 
 ### Current Build Step
 **Step**: Step 11 - Phase Git Completion

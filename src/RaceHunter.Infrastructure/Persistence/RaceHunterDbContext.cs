@@ -23,6 +23,7 @@ internal sealed class RaceHunterDbContext(DbContextOptions<RaceHunterDbContext> 
     internal DbSet<ReplayStepRecord> ReplaySteps => Set<ReplayStepRecord>();
     internal DbSet<ReplayAttemptRecord> ReplayAttempts => Set<ReplayAttemptRecord>();
     internal DbSet<ReplayExecutionClaimRecord> ReplayExecutionClaims => Set<ReplayExecutionClaimRecord>();
+    internal DbSet<FindingProbeCheckpointRecord> FindingProbeCheckpoints => Set<FindingProbeCheckpointRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -43,6 +44,7 @@ internal sealed class RaceHunterDbContext(DbContextOptions<RaceHunterDbContext> 
         modelBuilder.ApplyConfiguration(new ReplayStepConfiguration());
         modelBuilder.ApplyConfiguration(new ReplayAttemptConfiguration());
         modelBuilder.ApplyConfiguration(new ReplayExecutionClaimConfiguration());
+        modelBuilder.ApplyConfiguration(new FindingProbeCheckpointConfiguration());
     }
 }
 
@@ -259,4 +261,17 @@ internal sealed class ReplayExecutionClaimRecord
     public required string Owner { get; set; }
     public DateTime ClaimedAtUtc { get; set; }
     public ReplayArtifactRecord Artifact { get; set; } = null!;
+}
+
+internal sealed class FindingProbeCheckpointRecord
+{
+    public Guid RunId { get; set; }
+    public required string ProbeKey { get; set; }
+    public required string Phase { get; set; }
+    public int Ordinal { get; set; }
+    public required string CandidateJson { get; set; }
+    public required string Outcome { get; set; }
+    public required string TraceReferencesJson { get; set; }
+    public int RequestsConsumed { get; set; }
+    public DateTime CompletedAtUtc { get; set; }
 }

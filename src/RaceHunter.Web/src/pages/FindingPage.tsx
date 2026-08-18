@@ -58,6 +58,14 @@ export function FindingPage({ findingId }: { findingId: string }) {
       <p><strong>Replay ID</strong> {finding.replayArtifact.id}</p>
       <p><strong>Fingerprint</strong> {finding.replayArtifact.fingerprint}</p>
       <p>{finding.replayArtifact.strategy} · seed {finding.replayArtifact.seed} · {finding.replayArtifact.actorCount} actors · {finding.replayArtifact.stepCount} minimum steps</p>
+      <div role="region" aria-label="Minimized replay schedule">
+        <h3>Minimized schedule</h3>
+        <ol>
+          {finding.replayArtifact.steps.map((step, index) => <li key={`${step.actorId}-${step.stepId}-${index}`}>
+            <strong>Actor {step.actorId}</strong> · operation {step.operationId} · step {step.stepId} · offset {step.offsetMilliseconds} ms
+          </li>)}
+        </ol>
+      </div>
       <button type="button" onClick={replay} disabled={busy}>{busy ? 'Verifying fix…' : 'Verify Fix'}</button>
     </section>
     <section aria-label="Replay comparison">

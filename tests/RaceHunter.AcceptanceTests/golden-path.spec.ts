@@ -70,6 +70,10 @@ test('golden path presents measured proof and verifies the fixed target with the
   await page.getByRole('link', { name: 'Open verified finding' }).click()
 
   await expect(page.getByRole('heading', { name: 'Race condition verified — reproduced 3/3 and minimized to 2 actors.' })).toBeVisible()
+  const schedule = page.getByRole('region', { name: 'Minimized replay schedule' })
+  await expect(schedule).toContainText('Actor 1')
+  await expect(schedule).toContainText('place-order')
+  await expect(schedule).toContainText('0 ms')
   await expect(page.getByRole('region', { name: 'Causal actor-lane timeline' })).toContainText('Actor 1')
   await expect(page.getByRole('region', { name: 'Agent Activity' })).toContainText('gemini-3.5-flash')
   await page.getByRole('button', { name: 'Verify Fix' }).click()

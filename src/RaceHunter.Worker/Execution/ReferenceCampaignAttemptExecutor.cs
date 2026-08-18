@@ -33,6 +33,7 @@ internal sealed class ReferenceCampaignAttemptExecutor(
         ExperimentBudget campaignBudget,
         InvariantDefinition invariant,
         ReplayCandidate candidate,
+        string executionKey,
         CancellationToken cancellationToken)
     {
         var plan = new SchedulePlan(
@@ -41,8 +42,9 @@ internal sealed class ReferenceCampaignAttemptExecutor(
             candidate.Steps.Select((step, index) => new ScheduledActor(
                 step.ActorId,
                 TimeSpan.FromMilliseconds(step.OffsetMilliseconds),
-                candidate.Strategy == "checkpoint-interleaving" ? index + 1 : null)).ToArray());
-        return ExecutePlanAsync(runId, campaignBudget, invariant, plan, cancellationToken);
+                candidate.Strategy == "checkpoint-interleaving" ? index + 1 : null,
+                $"{index}:{step.StepId}:{step.OperationId}")).ToArray());
+        return ExecutePlanAsync(runId, campaignBudget, invariant, plan, cancellationToken, executionKey);
     }
 
     private async Task<DeterministicAttemptResult> ExecutePlanAsync(
@@ -50,13 +52,17 @@ internal sealed class ReferenceCampaignAttemptExecutor(
         ExperimentBudget campaignBudget,
         InvariantDefinition invariant,
         SchedulePlan plan,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? executionKey = null)
     {
         var attempt = RunAttempt.Start(Guid.NewGuid(), runId, plan.Kind.ToString(), plan.Seed, DateTime.UtcNow);
         await attemptStore.AddAsync(attempt, cancellationToken);
         var previous = await traceStore.GetAsync(runId, 0, cancellationToken);
         var nextSequence = previous.Count == 0 ? 0L : previous.Max(item => item.Sequence);
+        var tracesByRequest = previous.GroupBy(item => item.RequestId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.OrderBy(item => item.Sequence).First(), StringComparer.Ordinal);
         var persisted = new List<TraceEvent>();
+        var requestsConsumed = 0;
         var persistenceGate = new SemaphoreSlim(1, 1);
         var attemptBudget = new ExperimentBudget(
             plan.Actors.Count,
@@ -70,10 +76,15 @@ internal sealed class ReferenceCampaignAttemptExecutor(
         {
             var result = await scheduler.ExecuteAsync(plan, attemptBudget, async (actor, token) =>
             {
-                var targetResult = await target.PlaceOrderAsync(runId, actor, token);
+                var targetResult = await target.PlaceOrderAsync(runId, actor, executionKey, token);
                 await persistenceGate.WaitAsync(CancellationToken.None);
                 try
                 {
+                    if (targetResult.RequestId is not null && tracesByRequest.TryGetValue(targetResult.RequestId, out var existingTrace))
+                    {
+                        persisted.Add(existingTrace);
+                        return targetResult;
+                    }
                     var trace = new TraceEvent(
                         ++nextSequence,
                         runId,
@@ -85,6 +96,8 @@ internal sealed class ReferenceCampaignAttemptExecutor(
                         DateTime.UtcNow);
                     await traceStore.AppendAsync(trace, CancellationToken.None);
                     persisted.Add(trace);
+                    tracesByRequest[trace.RequestId] = trace;
+                    requestsConsumed++;
                 }
                 finally
                 {
@@ -105,7 +118,7 @@ internal sealed class ReferenceCampaignAttemptExecutor(
             return new DeterministicAttemptResult(
                 invariantResult.Outcome,
                 persisted.Select(item => $"trace:{item.Sequence}").ToArray(),
-                result.Executions.Count,
+                requestsConsumed,
                 plan.Actors.Select(item => new DeterministicReplayStep(
                     item.ActorId,
                     checked((int)item.Offset.TotalMilliseconds))).ToArray());

@@ -82,3 +82,20 @@ public interface IAgentIterationReader
 {
     Task<IReadOnlyList<AgentIterationRecord>> GetIterationsByRunAsync(Guid runId, CancellationToken cancellationToken);
 }
+
+public sealed record FindingProbeCheckpoint(
+    Guid RunId,
+    string ProbeKey,
+    string Phase,
+    int Ordinal,
+    string CandidateJson,
+    string Outcome,
+    IReadOnlyList<string> TraceReferences,
+    int RequestsConsumed,
+    DateTime CompletedAtUtc);
+
+public interface IFindingProbeCheckpointStore
+{
+    Task<FindingProbeCheckpoint?> GetAsync(Guid runId, string probeKey, CancellationToken cancellationToken);
+    Task SaveAsync(FindingProbeCheckpoint checkpoint, CancellationToken cancellationToken);
+}

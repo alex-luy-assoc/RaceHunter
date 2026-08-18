@@ -13,6 +13,44 @@ namespace RaceHunter.Application.Tests;
 public sealed class FindingWorkflowTests
 {
     [Fact]
+    public async Task Verify_fix_normalizes_the_idempotency_key_before_execution()
+    {
+        var state = State();
+        var execution = new CapturingReplayExecution();
+
+        var attempt = await new VerifyFix(state, state, execution)
+            .ExecuteAsync(state.Finding.Id, "  padded-key  ", CancellationToken.None);
+
+        Assert.Equal("padded-key", attempt.IdempotencyKey);
+        Assert.Equal("padded-key", execution.LastKey);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Verify_fix_rejects_empty_keys_before_execution(string key)
+    {
+        var state = State();
+        var execution = new CapturingReplayExecution();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new VerifyFix(state, state, execution)
+            .ExecuteAsync(state.Finding.Id, key, CancellationToken.None));
+
+        Assert.Null(execution.LastKey);
+    }
+
+    [Fact]
+    public async Task Verify_fix_rejects_keys_over_160_characters_before_execution()
+    {
+        var state = State();
+        var execution = new CapturingReplayExecution();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new VerifyFix(state, state, execution)
+            .ExecuteAsync(state.Finding.Id, new string('x', 161), CancellationToken.None));
+
+        Assert.Null(execution.LastKey);
+    }
+    [Fact]
     public void Finding_truth_requires_a_deterministic_failed_invariant()
     {
         var artifact = Artifact();
@@ -167,6 +205,18 @@ public sealed class FindingWorkflowTests
                 new(1, runId, failedAttemptId, 1, "place-order", "request", "request-a", Utc(1)),
                 new(2, runId, failedAttemptId, 2, "place-order", "request", "request-b", Utc(1)),
                 new(3, runId, Guid.NewGuid(), 3, "unrelated-attempt", "request", "request-c", Utc(2))];
+        }
+    }
+
+    private sealed class CapturingReplayExecution : IReplayExecution
+    {
+        public string? LastKey { get; private set; }
+
+        public Task<ReplayAttempt> ExecuteAsync(ReplayArtifact artifact, ReplayTargetMode targetMode, string idempotencyKey, CancellationToken cancellationToken)
+        {
+            LastKey = idempotencyKey;
+            return Task.FromResult(ReplayAttempt.Complete(Guid.NewGuid(), artifact.Id, targetMode, InvariantOutcome.Pass,
+                ["trace:fixed"], artifact.Fingerprint, idempotencyKey, Utc(8)));
         }
     }
 }

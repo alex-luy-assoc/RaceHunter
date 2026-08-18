@@ -3,10 +3,10 @@ using RaceHunter.Domain.Invariants;
 
 namespace RaceHunter.Concurrency.Scheduling;
 
-public sealed record TargetCallResult(bool Succeeded, IReadOnlyList<Observation> Observations, string? RequestId)
+public sealed record TargetCallResult(bool Succeeded, IReadOnlyList<Observation> Observations, string? RequestId, bool Reused = false)
 {
-    public static TargetCallResult Success(IReadOnlyList<Observation>? observations = null, string? requestId = null) => new(true, observations ?? [], requestId);
-    public static TargetCallResult Failure(IReadOnlyList<Observation>? observations = null, string? requestId = null) => new(false, observations ?? [], requestId);
+    public static TargetCallResult Success(IReadOnlyList<Observation>? observations = null, string? requestId = null, bool reused = false) => new(true, observations ?? [], requestId, reused);
+    public static TargetCallResult Failure(IReadOnlyList<Observation>? observations = null, string? requestId = null, bool reused = false) => new(false, observations ?? [], requestId, reused);
 }
 
 public sealed record ActorExecutionResult(ScheduledActor Actor, TargetCallResult TargetResult);

@@ -1,0 +1,15 @@
+import { defineConfig } from '@playwright/test'
+
+export default defineConfig({
+  testDir: '.',
+  testMatch: /real-backend\.spec\.ts/,
+  fullyParallel: false,
+  retries: 0,
+  reporter: 'list',
+  timeout: 120_000,
+  expect: { timeout: 30_000 },
+  use: {
+    baseURL: process.env.RACEHUNTER_BASE_URL ?? 'http://127.0.0.1:8080',
+    trace: 'retain-on-failure'
+  }
+})

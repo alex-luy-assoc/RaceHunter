@@ -131,7 +131,7 @@
       "VerifyFixRequest": {
         "type": "object",
         "required": ["idempotencyKey"],
-        "properties": { "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 160 } }
+        "properties": { "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^.*\\S.*$", "description": "Trimmed by the server before use; the normalized value must be 1–160 characters." } }
       },
       "Run": {
         "type": "object",

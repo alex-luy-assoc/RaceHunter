@@ -8,6 +8,8 @@ The foundation contains .NET 10 Clean Architecture projects, a React application
 
 The implemented workflow now covers asynchronous Gemini planning through the Pub/Sub boundary, bounded deterministic campaigns, durable progress and recovery, measured three-of-three reproduction, exact-schedule minimization to two actors and the minimum failure-preserving steps, and immutable vulnerable-versus-fixed replay. The Finding page keeps deterministic evidence separate from Gemini interpretation and presents the exact verified message, evidence-filtered actor lanes, Agent Activity, replay identity, and Verify Fix comparison. PostgreSQL remains authoritative across refreshes.
 
+Reproduction and minimization persist every deterministic probe boundary in PostgreSQL. Stable artifact-, candidate-, actor-, and step-scoped operation keys let an expired worker reuse completed attempts and reductions without repeating target mutations. An authenticated reference-target status preflight reconciles receiver results with RaceHunter trace correlations before reserving request budget. The Finding page renders the minimized actor, operation, step, and offset schedule as accessible evidence.
+
 ### Prerequisites
 
 - .NET SDK 10.0.400
@@ -56,6 +58,8 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/runs/$runId/traces?after=0"
 The final response reports deterministic `Fail` evidence when successful orders exceed the configured maximum. `POST /api/runs/{runId}/cancel` persists an idempotent cancellation request; an active manual execution checks durable cancellation every 200 ms and stops new target work.
 
 The full UI journey starts at `http://localhost:8080/hunts/new`. After a verified run, `GET /api/runs/{runId}` exposes its `findingId`; `GET /api/findings/{findingId}` returns the persisted finding projection; and `POST /api/findings/{findingId}/replays` executes the server-owned fixed-target replay with a required idempotency key. The Phase 4 portability gate uses a fresh Compose volume and follows that plan/approve/run/finding/Verify Fix path through the API, worker, reference target, PostgreSQL, and Pub/Sub emulator. The finding and replay subset is documented in `docs/openapi.json`.
+
+Run `./scripts/run-real-playwright.ps1` from PowerShell for the non-mocked browser acceptance journey. It builds an isolated Compose stack, drives the real UI/API/worker/reference-target/PostgreSQL/Pub/Sub path, verifies vulnerable `Fail` versus fixed `Pass`, reloads persisted evidence, and removes its test containers, network, and volumes afterward.
 
 The demo reset endpoint is disabled when `DemoControl:Key` is absent. Compose supplies the development-only `X-Demo-Control-Key: local-demo-only`; staging receives a generated key through a least-privilege Secret Manager reference and stores no key value in the repository.
 

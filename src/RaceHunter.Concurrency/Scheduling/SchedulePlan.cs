@@ -7,7 +7,7 @@ public enum ScheduleKind
     CheckpointInterleaving
 }
 
-public sealed record ScheduledActor(int ActorId, TimeSpan Offset, int? CheckpointOrder = null);
+public sealed record ScheduledActor(int ActorId, TimeSpan Offset, int? CheckpointOrder = null, string OperationKey = "");
 
 public sealed record SchedulePlan(ScheduleKind Kind, int Seed, IReadOnlyList<ScheduledActor> Actors);
 

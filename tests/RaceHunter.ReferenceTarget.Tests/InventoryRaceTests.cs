@@ -164,6 +164,91 @@ public sealed class InventoryRaceTests(ReferenceTargetFixture fixture) : IClassF
         Assert.NotEqual(Guid.Empty, order!.CorrelationId);
     }
 
+    [Fact]
+    public async Task Durable_order_key_reuses_the_original_result_after_reset_without_reapplying_mutation()
+    {
+        await ResetAsync(1, "fixed");
+        var first = await Client.PostAsJsonAsync("/api/orders", new { actorId = "actor", quantity = 1, checkpoint = "none", idempotencyKey = "durable-order-1" });
+        var original = await first.Content.ReadFromJsonAsync<OrderResult>();
+        await ResetAsync(1, "fixed");
+
+        var duplicate = await Client.PostAsJsonAsync("/api/orders", new { actorId = "actor", quantity = 1, checkpoint = "none", idempotencyKey = "durable-order-1" });
+        var replayed = await duplicate.Content.ReadFromJsonAsync<OrderResult>();
+        var state = await Client.GetFromJsonAsync<InventoryState>("/api/inventory");
+
+        Assert.Equal(HttpStatusCode.Created, duplicate.StatusCode);
+        Assert.Equal(original!.CorrelationId, replayed!.CorrelationId);
+        Assert.True(replayed.Replayed);
+        Assert.Equal(0, state!.SuccessfulOrders);
+        Assert.Equal(1, state.Available);
+    }
+
+    [Fact]
+    public async Task Durable_reset_key_is_applied_once()
+    {
+        await ResetWithKeyAsync(1, "fixed", "reset-once");
+        await Client.PostAsJsonAsync("/api/orders", new { actorId = "actor", quantity = 1, checkpoint = "none" });
+
+        await ResetWithKeyAsync(1, "fixed", "reset-once");
+        var state = await Client.GetFromJsonAsync<InventoryState>("/api/inventory");
+
+        Assert.Equal(1, state!.SuccessfulOrders);
+        Assert.Equal(0, state.Available);
+    }
+
+    [Fact]
+    public async Task Replayed_order_still_participates_in_controlled_checkpoint_recovery()
+    {
+        const string scope = "partial-recovery-scope";
+        await ResetWithKeyAsync(1, "vulnerable", "partial-recovery-reset", scope);
+        var original = await Task.WhenAll(
+            Client.PostAsJsonAsync("/api/orders", new { actorId = "actor-1", quantity = 1, checkpoint = "oversell:original", idempotencyKey = "recovery-actor-1", replayScope = scope }),
+            Client.PostAsJsonAsync("/api/orders", new { actorId = "actor-2", quantity = 1, checkpoint = "oversell:original", idempotencyKey = "recovery-actor-2", replayScope = scope }));
+        Assert.All(original, response => Assert.Equal(HttpStatusCode.Created, response.StatusCode));
+        await ResetWithKeyAsync(1, "vulnerable", "partial-recovery-reset", scope);
+
+        var cachedActor = Client.PostAsJsonAsync("/api/orders", new { actorId = "actor-1", quantity = 1, checkpoint = "oversell:recovery", idempotencyKey = "recovery-actor-1", replayScope = scope });
+        await Task.Delay(50);
+        Assert.False(cachedActor.IsCompleted);
+        var newActor = Client.PostAsJsonAsync("/api/orders", new { actorId = "actor-2", quantity = 1, checkpoint = "oversell:recovery", idempotencyKey = "recovery-actor-2-new", replayScope = scope });
+        var recovered = await Task.WhenAll(cachedActor, newActor).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.All(recovered, response => Assert.Equal(HttpStatusCode.Created, response.StatusCode));
+        var state = await Client.GetFromJsonAsync<InventoryState>("/api/inventory");
+        Assert.Equal(3, state!.SuccessfulOrders);
+    }
+
+    [Fact]
+    public async Task Authenticated_order_status_reports_only_missing_durable_keys()
+    {
+        await ResetAsync(1, "fixed");
+        await Client.PostAsJsonAsync("/api/orders", new { actorId = "actor", quantity = 1, checkpoint = "none", idempotencyKey = "known-operation" });
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/demo/order-status")
+        {
+            Content = JsonContent.Create(new { idempotencyKeys = new[] { "known-operation", "missing-operation" } })
+        };
+        request.Headers.Add("X-Demo-Control-Key", "test-control-key");
+
+        using var response = await Client.SendAsync(request);
+        var status = await response.Content.ReadFromJsonAsync<OrderStatus>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1, status!.Missing);
+    }
+
+    [Fact]
+    public async Task Replay_scope_does_not_make_sequential_vulnerable_orders_use_a_stale_snapshot()
+    {
+        const string scope = "sequential-scope";
+        await ResetWithKeyAsync(1, "vulnerable", "sequential-reset", scope);
+
+        var first = await Client.PostAsJsonAsync("/api/orders", new { actorId = "actor-1", quantity = 1, checkpoint = "", idempotencyKey = "sequential-1", replayScope = scope });
+        var second = await Client.PostAsJsonAsync("/api/orders", new { actorId = "actor-2", quantity = 1, checkpoint = "", idempotencyKey = "sequential-2", replayScope = scope });
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+    }
+
     private async Task ResetAsync(int quantity, string mode)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/demo/reset")
@@ -175,6 +260,23 @@ public sealed class InventoryRaceTests(ReferenceTargetFixture fixture) : IClassF
         response.EnsureSuccessStatusCode();
     }
 
+    private async Task ResetWithKeyAsync(int quantity, string mode, string idempotencyKey)
+        => await ResetWithKeyAsync(quantity, mode, idempotencyKey, null);
+
+    private async Task ResetWithKeyAsync(int quantity, string mode, string idempotencyKey, string? replayScope)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/demo/reset")
+        {
+            Content = JsonContent.Create(new { quantity, mode })
+        };
+        request.Headers.Add("X-Demo-Control-Key", "test-control-key");
+        request.Headers.Add("X-RaceHunter-Idempotency-Key", idempotencyKey);
+        if (replayScope is not null) request.Headers.Add("X-RaceHunter-Replay-Scope", replayScope);
+        var response = await Client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+    }
+
     private sealed record InventoryState(int Available, int SuccessfulOrders, string Mode);
-    private sealed record OrderResult(Guid CorrelationId);
+    private sealed record OrderResult(Guid CorrelationId, bool Replayed);
+    private sealed record OrderStatus(int Missing);
 }
