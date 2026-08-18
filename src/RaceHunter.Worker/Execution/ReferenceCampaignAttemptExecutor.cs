@@ -1,6 +1,7 @@
 using RaceHunter.Application.Abstractions;
 using RaceHunter.Application.Agents;
 using RaceHunter.Concurrency.Invariants;
+using RaceHunter.Concurrency.Replay;
 using RaceHunter.Concurrency.Scheduling;
 using RaceHunter.Domain.Budgets;
 using RaceHunter.Domain.Invariants;
@@ -15,7 +16,7 @@ internal sealed class ReferenceCampaignAttemptExecutor(
     ITraceStore traceStore,
     IRunAttemptStore attemptStore)
 {
-    public async Task<DeterministicAttemptResult> ExecuteAsync(
+    public Task<DeterministicAttemptResult> ExecuteAsync(
         Guid runId,
         ExperimentBudget campaignBudget,
         InvariantDefinition invariant,
@@ -24,16 +25,43 @@ internal sealed class ReferenceCampaignAttemptExecutor(
         CancellationToken cancellationToken)
     {
         var plan = CreatePlan(settings, seed);
-        var attempt = RunAttempt.Start(Guid.NewGuid(), runId, plan.Kind.ToString(), seed, DateTime.UtcNow);
+        return ExecutePlanAsync(runId, campaignBudget, invariant, plan, cancellationToken);
+    }
+
+    public Task<DeterministicAttemptResult> ExecuteReplayAsync(
+        Guid runId,
+        ExperimentBudget campaignBudget,
+        InvariantDefinition invariant,
+        ReplayCandidate candidate,
+        CancellationToken cancellationToken)
+    {
+        var plan = new SchedulePlan(
+            ParseKind(candidate.Strategy),
+            candidate.Seed,
+            candidate.Steps.Select((step, index) => new ScheduledActor(
+                step.ActorId,
+                TimeSpan.FromMilliseconds(step.OffsetMilliseconds),
+                candidate.Strategy == "checkpoint-interleaving" ? index + 1 : null)).ToArray());
+        return ExecutePlanAsync(runId, campaignBudget, invariant, plan, cancellationToken);
+    }
+
+    private async Task<DeterministicAttemptResult> ExecutePlanAsync(
+        Guid runId,
+        ExperimentBudget campaignBudget,
+        InvariantDefinition invariant,
+        SchedulePlan plan,
+        CancellationToken cancellationToken)
+    {
+        var attempt = RunAttempt.Start(Guid.NewGuid(), runId, plan.Kind.ToString(), plan.Seed, DateTime.UtcNow);
         await attemptStore.AddAsync(attempt, cancellationToken);
         var previous = await traceStore.GetAsync(runId, 0, cancellationToken);
         var nextSequence = previous.Count == 0 ? 0L : previous.Max(item => item.Sequence);
         var persisted = new List<TraceEvent>();
         var persistenceGate = new SemaphoreSlim(1, 1);
         var attemptBudget = new ExperimentBudget(
-            settings.ActorCount,
-            Math.Min(settings.ActorCount, campaignBudget.MaxConcurrentActors),
-            settings.ActorCount,
+            plan.Actors.Count,
+            Math.Min(plan.Actors.Count, campaignBudget.MaxConcurrentActors),
+            plan.Actors.Count,
             campaignBudget.MaxModelCalls,
             campaignBudget.MaxDuration,
             campaignBudget.MaxRetries);
@@ -77,7 +105,10 @@ internal sealed class ReferenceCampaignAttemptExecutor(
             return new DeterministicAttemptResult(
                 invariantResult.Outcome,
                 persisted.Select(item => $"trace:{item.Sequence}").ToArray(),
-                result.Executions.Count);
+                result.Executions.Count,
+                plan.Actors.Select(item => new DeterministicReplayStep(
+                    item.ActorId,
+                    checked((int)item.Offset.TotalMilliseconds))).ToArray());
         }
         catch
         {
@@ -96,5 +127,13 @@ internal sealed class ReferenceCampaignAttemptExecutor(
         "seeded-jitter" => new SeededJitterStrategy(TimeSpan.FromMilliseconds(Math.Max(1, settings.TimingAdjustmentMs))).Create(settings.ActorCount, seed),
         "checkpoint-interleaving" => new CheckpointStrategy().Create(settings.ActorCount, seed),
         _ => throw new InvalidOperationException("The persisted strategy was not allowlisted.")
+    };
+
+    private static ScheduleKind ParseKind(string strategy) => strategy switch
+    {
+        "simultaneous-start" => ScheduleKind.SimultaneousStart,
+        "seeded-jitter" => ScheduleKind.SeededJitter,
+        "checkpoint-interleaving" => ScheduleKind.CheckpointInterleaving,
+        _ => throw new InvalidOperationException("The replay strategy was not allowlisted.")
     };
 }

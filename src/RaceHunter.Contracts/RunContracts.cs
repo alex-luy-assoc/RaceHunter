@@ -11,7 +11,8 @@ public sealed record RunResponse(
     DateTime CreatedAtUtc,
     DateTime? StartedAtUtc,
     DateTime? CompletedAtUtc,
-    DateTime? CancellationRequestedAtUtc);
+    DateTime? CancellationRequestedAtUtc,
+    Guid? FindingId);
 
 public sealed record RunEventResponse(long Cursor, string Kind, string Message, DateTime OccurredAtUtc);
 

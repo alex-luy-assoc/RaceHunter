@@ -3,7 +3,11 @@ using RaceHunter.Application.Abstractions;
 using RaceHunter.Application.Agents;
 using RaceHunter.Application.Hunts;
 using RaceHunter.Application.Messaging;
+using RaceHunter.Concurrency.Minimization;
+using RaceHunter.Concurrency.Replay;
+using RaceHunter.Domain.Findings;
 using RaceHunter.Domain.Invariants;
+using RaceHunter.Domain.Replays;
 using RaceHunter.Domain.Runs;
 
 namespace RaceHunter.Worker.Execution;
@@ -14,7 +18,11 @@ internal sealed class CampaignRunner(
     IWorkInbox inbox,
     IAgentDecisionCheckpointStore decisionCheckpoints,
     IExperimentStrategist strategist,
-    ReferenceCampaignAttemptExecutor attemptExecutor) : ICampaignWorkHandler
+    ReferenceCampaignAttemptExecutor attemptExecutor,
+    ReferenceInventoryTargetClient target,
+    IFindingStore findings,
+    ITraceStore traces,
+    IConfiguration configuration) : ICampaignWorkHandler
 {
     public async Task ExecuteAsync(
         Guid runId,
@@ -65,10 +73,24 @@ internal sealed class CampaignRunner(
         var invariant = PlannedInvariantCompiler.Compile(plan.Invariant);
         try
         {
-            var result = await new AdaptiveStrategyLoop(strategist).RunAsync(
-                context,
-                (settings, token) => attemptExecutor.ExecuteAsync(run.Id, run.Budget, invariant, plan.Strategy.Seed, settings, token),
-                bounded.Token,
+            AdaptiveCampaignResult result;
+            if (recovered.FinalizeFinding)
+            {
+                result = new AdaptiveCampaignResult(
+                    CampaignOutcome.VerifiedViolation,
+                    true,
+                    recovered.ResumeAfterIteration,
+                    recovered.ModelCallsConsumed,
+                    [],
+                    recovered.FailedSettings,
+                    recovered.RecoveredAttempt);
+            }
+            else
+            {
+                result = await new AdaptiveStrategyLoop(strategist).RunAsync(
+                    context,
+                    (settings, token) => attemptExecutor.ExecuteAsync(run.Id, run.Budget, invariant, plan.Strategy.Seed, settings, token),
+                    bounded.Token,
                 async (iteration, decision, evidence, token) =>
                 {
                     var iterationRecord = new AgentIterationRecord(
@@ -82,7 +104,17 @@ internal sealed class CampaignRunner(
                         decision.SchemaVersion,
                         decision.ModelInvocationId,
                         DateTime.UtcNow);
-                    var state = JsonSerializer.Serialize(new CheckpointState(decision.ActorCount, decision.Strategy, decision.TimingAdjustmentMs, evidence.RequestsConsumed, evidence.ModelCallsConsumed));
+                    var state = JsonSerializer.Serialize(new CheckpointState(
+                        decision.ActorCount,
+                        decision.Strategy,
+                        decision.TimingAdjustmentMs,
+                        evidence.RequestsConsumed,
+                        evidence.ModelCallsConsumed,
+                        evidence.InvariantOutcome,
+                        evidence.TraceReferences,
+                        evidence.Schedule,
+                        decision.Action.ToString(),
+                        evidence.AttemptSettings));
                     await decisionCheckpoints.PersistAsync(
                         workId,
                         leaseOwner,
@@ -101,23 +133,37 @@ internal sealed class CampaignRunner(
                         evidence.RequestsConsumed,
                         evidence.ModelCallsConsumed,
                         evidence.InvariantOutcome,
-                        evidence.TraceReferences));
+                        evidence.TraceReferences,
+                        evidence.Schedule));
                     await inbox.SaveCheckpointAsync(
                         workId,
                         leaseOwner,
                         new WorkCheckpoint("attempt-completed", iteration, state, DateTime.UtcNow),
                         token);
                 });
+            }
 
-            run.AppendEvent(result.Outcome switch
+            if (result.Outcome == CampaignOutcome.VerifiedViolation)
             {
-                CampaignOutcome.VerifiedViolation => "deterministic-violation-observed",
-                CampaignOutcome.CompletedWithoutFinding => "campaign-no-finding",
-                CampaignOutcome.BudgetExhausted => "budget-exhausted",
-                CampaignOutcome.ModelFailed => "model-failed",
-                CampaignOutcome.WorkerFailed => "worker-failed",
-                _ => throw new ArgumentOutOfRangeException()
-            }, $"Campaign stopped with explicit outcome {result.Outcome}.", DateTime.UtcNow);
+                var findingId = await FinalizeFindingAsync(run, plan, invariant, result, attemptExecutor, target, findings, traces, configuration, bounded.Token);
+                run.AppendEvent(
+                    findingId.HasValue ? "finding-ready" : "reproduction-inconclusive",
+                    findingId.HasValue
+                        ? $"Verified finding {findingId.Value} is ready with immutable replay evidence."
+                        : "The deterministic violation did not meet the reference reproduction threshold within the request budget.",
+                    DateTime.UtcNow);
+            }
+            else
+            {
+                run.AppendEvent(result.Outcome switch
+                {
+                    CampaignOutcome.CompletedWithoutFinding => "campaign-no-finding",
+                    CampaignOutcome.BudgetExhausted => "budget-exhausted",
+                    CampaignOutcome.ModelFailed => "model-failed",
+                    CampaignOutcome.WorkerFailed => "worker-failed",
+                    _ => throw new ArgumentOutOfRangeException()
+                }, $"Campaign stopped with explicit outcome {result.Outcome}.", DateTime.UtcNow);
+            }
             if (result.Outcome == CampaignOutcome.ModelFailed) run.Fail(DateTime.UtcNow);
             else run.Complete(DateTime.UtcNow);
             await runs.SaveAsync(run, CancellationToken.None);
@@ -159,15 +205,132 @@ internal sealed class CampaignRunner(
         _ => "worker"
     };
 
-    private static RecoveryState RecoverSettings(WorkCheckpoint? checkpoint, ScenarioPlan plan)
+    private static async Task<Guid?> FinalizeFindingAsync(
+        ExperimentRun run,
+        ScenarioPlan plan,
+        InvariantDefinition invariant,
+        AdaptiveCampaignResult result,
+        ReferenceCampaignAttemptExecutor attemptExecutor,
+        ReferenceInventoryTargetClient target,
+        IFindingStore findings,
+        ITraceStore traces,
+        IConfiguration configuration,
+        CancellationToken cancellationToken)
+    {
+        var failedSettings = result.FailedSettings ?? throw new InvalidOperationException("Verified campaign evidence is missing its failed settings.");
+        var failedAttempt = result.FailedAttempt ?? throw new InvalidOperationException("Verified campaign evidence is missing its deterministic attempt.");
+        var original = CreateReplayCandidate(failedSettings, failedAttempt, plan.Strategy.Seed);
+        var persistedTraces = await traces.GetAsync(run.Id, 0, cancellationToken);
+        var probe = new CampaignReplayProbe(
+            run,
+            invariant,
+            attemptExecutor,
+            target,
+            configuration["ReferenceTarget:DemoControlKey"]
+                ?? throw new InvalidOperationException("ReferenceTarget:DemoControlKey is required for measured reproduction."),
+            Math.Max(0, run.Budget.MaxRequests - persistedTraces.Count));
+        var reproduction = await new ReproductionVerifier().VerifyReferenceAsync(original, probe, cancellationToken);
+        if (!reproduction.Verified) return null;
+        var minimized = await new FailureMinimizer().MinimizeAsync(original, probe, cancellationToken);
+        if (minimized.Candidate.ActorCount != 2) return null;
+
+        var findingId = Guid.NewGuid();
+        var artifact = ReplayArtifact.Create(
+            Guid.NewGuid(),
+            findingId,
+            plan.PlanVersion,
+            "invariant-v1",
+            "reference-inventory:quantity=1",
+            minimized.Candidate.Strategy,
+            minimized.Candidate.Seed,
+            minimized.Candidate.Steps,
+            "{\"quantity\":1}",
+            DateTime.UtcNow);
+        var vulnerableReplay = await probe.ExecuteAsync(minimized.Candidate, ReplayTargetMode.Vulnerable, cancellationToken);
+        if (vulnerableReplay.Outcome != InvariantOutcome.Fail) return null;
+        var finding = Finding.CreateReference(
+            findingId,
+            run.Id,
+            artifact.InvariantVersionId,
+            new InvariantResult(InvariantOutcome.Fail, failedAttempt.TraceReferences, "Successful orders exceeded available inventory."),
+            reproduction.Attempts.Select(item => new ReproductionAttempt(item.Attempt, item.Outcome, item.TraceReferences)).ToArray(),
+            artifact,
+            DateTime.UtcNow,
+            "Gemini strategy activity is advisory; deterministic evaluator evidence verified and minimized this finding.");
+        var vulnerableAttempt = ReplayAttempt.Complete(
+            Guid.NewGuid(),
+            artifact.Id,
+            ReplayTargetMode.Vulnerable,
+            vulnerableReplay.Outcome,
+            vulnerableReplay.TraceReferences,
+            artifact.Fingerprint,
+            "reference-vulnerable-proof",
+            DateTime.UtcNow);
+        await findings.AddVerifiedAsync(finding, artifact, vulnerableAttempt, cancellationToken);
+        return findingId;
+    }
+
+    internal static ReplayCandidate CreateReplayCandidate(
+        CampaignSettings failedSettings,
+        DeterministicAttemptResult failedAttempt,
+        int seed)
+    {
+        var exactSchedule = failedAttempt.Schedule
+            ?? throw new InvalidOperationException("Verified campaign evidence is missing its exact executed schedule.");
+        return new ReplayCandidate(
+            failedSettings.Strategy,
+            seed,
+            exactSchedule.Select(step => new ReplayStep(step.ActorId, "place-order", "place-order", step.OffsetMilliseconds)));
+    }
+
+    private sealed class CampaignReplayProbe(
+        ExperimentRun run,
+        InvariantDefinition invariant,
+        ReferenceCampaignAttemptExecutor attemptExecutor,
+        ReferenceInventoryTargetClient target,
+        string demoControlKey,
+        int remainingRequests) : IReplayProbe
+    {
+        private int remaining = remainingRequests;
+
+        public async Task<ReplayObservation> ExecuteAsync(ReplayCandidate candidate, ReplayTargetMode mode, CancellationToken cancellationToken)
+        {
+            if (candidate.Steps.Count > remaining) return new ReplayObservation(InvariantOutcome.Inconclusive, []);
+            remaining -= candidate.Steps.Count;
+            await target.ResetAsync(mode, demoControlKey, cancellationToken);
+            var attempt = await attemptExecutor.ExecuteReplayAsync(
+                run.Id,
+                run.Budget,
+                invariant,
+                candidate,
+                cancellationToken);
+            return new ReplayObservation(attempt.InvariantOutcome, attempt.TraceReferences);
+        }
+    }
+
+    internal static RecoveryState RecoverSettings(WorkCheckpoint? checkpoint, ScenarioPlan plan)
     {
         if (checkpoint is null)
-            return new RecoveryState(new CampaignSettings(plan.Strategy.ActorCount, plan.Strategy.Kind, 0), 0, 0, 0, null, false);
+            return new RecoveryState(new CampaignSettings(plan.Strategy.ActorCount, plan.Strategy.Kind, 0), 0, 0, 0, null, false, false, null);
         var state = JsonSerializer.Deserialize<CheckpointState>(checkpoint.StateJson)
             ?? throw new InvalidOperationException("The persisted campaign checkpoint is invalid.");
         var settings = new CampaignSettings(state.ActorCount, state.Strategy, state.TimingAdjustmentMs);
         if (checkpoint.Boundary == "agent-decision-persisted")
-            return new RecoveryState(settings, checkpoint.Iteration, state.RequestsConsumed, state.ModelCallsConsumed, null, true);
+        {
+            var shouldFinalize = state.Action == AgentActionKind.StartMinimization.ToString() &&
+                state.InvariantOutcome == InvariantOutcome.Fail.ToString() &&
+                state.Schedule is { Count: > 0 } &&
+                state.AttemptSettings is not null;
+            return new RecoveryState(
+                settings,
+                checkpoint.Iteration,
+                state.RequestsConsumed,
+                state.ModelCallsConsumed,
+                shouldFinalize ? new DeterministicAttemptResult(InvariantOutcome.Fail, state.TraceReferences ?? [], 0, state.Schedule) : null,
+                true,
+                shouldFinalize,
+                shouldFinalize ? state.AttemptSettings : null);
+        }
         if (checkpoint.Boundary == "attempt-completed" && state.InvariantOutcome is not null)
         {
             var outcome = Enum.Parse<InvariantOutcome>(state.InvariantOutcome);
@@ -176,26 +339,33 @@ internal sealed class CampaignRunner(
                 Math.Max(0, checkpoint.Iteration - 1),
                 state.RequestsConsumed,
                 state.ModelCallsConsumed,
-                new DeterministicAttemptResult(outcome, state.TraceReferences ?? [], 0),
-                true);
+                new DeterministicAttemptResult(outcome, state.TraceReferences ?? [], 0, state.Schedule),
+                true,
+                false,
+                null);
         }
         throw new InvalidOperationException("The persisted campaign checkpoint boundary is unsupported.");
     }
 
-    private sealed record RecoveryState(
+    internal sealed record RecoveryState(
         CampaignSettings Settings,
         int ResumeAfterIteration,
         int RequestsConsumed,
         int ModelCallsConsumed,
         DeterministicAttemptResult? RecoveredAttempt,
-        bool HasCheckpoint);
+        bool HasCheckpoint,
+        bool FinalizeFinding,
+        CampaignSettings? FailedSettings);
 
-    private sealed record CheckpointState(
+    internal sealed record CheckpointState(
         int ActorCount,
         string Strategy,
         int TimingAdjustmentMs,
         int RequestsConsumed,
         int ModelCallsConsumed,
         string? InvariantOutcome = null,
-        IReadOnlyList<string>? TraceReferences = null);
+        IReadOnlyList<string>? TraceReferences = null,
+        IReadOnlyList<DeterministicReplayStep>? Schedule = null,
+        string? Action = null,
+        CampaignSettings? AttemptSettings = null);
 }

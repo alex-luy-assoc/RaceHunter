@@ -130,6 +130,18 @@ The second Phase 3 compliance remediation raised the verified suite to 97 .NET t
 
 The live Vertex invocation and deployed Pub/Sub/Cloud Run smoke remain approval-gated. Ordinary tests and local smoke use deterministic model fakes and the Pub/Sub emulator and require no Google credentials.
 
+Verified Phase 4 capabilities and local gates:
+
+- A reference finding is eligible only after the same deterministic invariant fails in exactly three of three measured reproductions. The reducer replays the recorded candidate schedule, tries actor removal deterministically down to the two-actor floor, then removes steps while accepting only reductions that preserve `Fail`.
+- Replay artifacts contain version identifiers, target snapshot, strategy, seed, ordered actor steps, offsets, and the request template. JSON is canonicalized and UTC timestamps are normalized to PostgreSQL microsecond precision before the SHA-256 fingerprint is computed; every database rehydration and replay verifies that fingerprint.
+- PostgreSQL stores findings, reproductions, replay artifacts, ordered steps, vulnerable/fixed attempts, and replay-execution claims in normalized records. Finding, artifact, and initial vulnerable attempt are committed atomically.
+- Concurrent Verify Fix requests coordinate through a per-artifact database claim so only one fixed-target execution wins. The claim is committed before the private-worker HTTP call, no database transaction spans that call, the fixed attempt is committed afterward, and failed or stale claims can be recovered without rewriting the finding or artifact.
+- `GET /api/findings/{findingId}` projects only trace rows referenced by the finding's deterministic evidence, preserves attempt IDs, orders events causally by UTC time and sequence into actor lanes, and returns Agent Activity and replay attempts separately. `POST /api/findings/{findingId}/replays` requires an idempotency key and returns the vulnerable/fixed comparison with RFC Problem Details on errors. The checked-in `docs/openapi.json` describes this Phase 4 API subset.
+- The React `/findings/{findingId}` route renders the exact verified headline only for measured 3/3 failure and a two-actor artifact. Verify Fix retains the original evidence when the replay service is unavailable and displays vulnerable `Fail` versus fixed `Pass` only when both attempts carry the immutable artifact fingerprint.
+- Playwright 1.62.1 covers the UI golden path from New Hunt through plan approval, live progress, the finding, and Verify Fix; it also covers API-backed refresh rehydration and recoverable replay failure. The fresh-volume Docker Compose golden path exercises the same plan/approve/run/finding/fixed-replay capability through PostgreSQL and the Pub/Sub emulator with the three approved application images.
+
+Phase 5 retains Cloud Run private-service IAM and API-to-worker ID-token authentication, OpenTelemetry and judge-facing Cloud proof, hardening/performance checks, staging/deployment, and live Google Cloud smoke. No Phase 4 local gate requires Google credentials or billable resources.
+
 ## Open Technical Decisions
 
 Choose the smallest option that preserves the golden-path demo and approved boundaries:
@@ -140,5 +152,5 @@ Choose the smallest option that preserves the golden-path demo and approved boun
 4. **Resolved:** React assets are hosted by the public API image.
 5. Low-friction authentication for the hosted judging demo.
 6. Exact reference-target observation JSON paths.
-7. Minimum replay success rate for a reproducible finding.
-8. Whether any OpenAPI subset is worth MVP risk.
+7. **Resolved for the reference target:** exactly three failures in three equivalent attempts are required before minimization; external-target confidence remains governed by the product brief.
+8. **Resolved:** maintain a small checked-in OpenAPI 3.1 subset for durable run status, finding evidence, and Verify Fix.

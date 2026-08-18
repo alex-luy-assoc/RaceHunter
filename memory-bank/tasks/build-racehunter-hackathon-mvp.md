@@ -260,8 +260,8 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] `src/RaceHunter.Domain/Runs/ExperimentRun.cs` — campaign lifecycle aggregate
 - [x] `src/RaceHunter.Domain/Runs/RunAttempt.cs` — schedule attempt entity
 - [x] `src/RaceHunter.Domain/Tracing/TraceEvent.cs` — append-only evidence entity
-- [ ] `src/RaceHunter.Domain/Findings/Finding.cs` — verified finding aggregate
-- [ ] `src/RaceHunter.Domain/Replays/ReplayArtifact.cs` — immutable replay aggregate
+- [x] `src/RaceHunter.Domain/Findings/Finding.cs` — verified finding aggregate
+- [x] `src/RaceHunter.Domain/Replays/ReplayArtifact.cs` — immutable replay aggregate
 - [ ] `src/RaceHunter.Domain/Agents/AgentIteration.cs` — persisted agent decision record
 - [x] `src/RaceHunter.Domain/Budgets/ExperimentBudget.cs` — bounded campaign value object
 - [x] `src/RaceHunter.Application/RaceHunter.Application.csproj` — use-case project
@@ -273,13 +273,13 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] `src/RaceHunter.Application/Hunts/ApproveAndRun.cs` — one-time approval use case
 - [x] `src/RaceHunter.Application/Runs/GetRun.cs` — durable run projection
 - [x] `src/RaceHunter.Application/Runs/CancelRun.cs` — idempotent cancellation
-- [ ] `src/RaceHunter.Application/Findings/GetFinding.cs` — evidence projection
-- [ ] `src/RaceHunter.Application/Replays/VerifyFix.cs` — replay comparison use case
+- [x] `src/RaceHunter.Application/Findings/GetFinding.cs` — evidence projection
+- [x] `src/RaceHunter.Application/Replays/VerifyFix.cs` — replay comparison use case
 - [x] `src/RaceHunter.Contracts/RaceHunter.Contracts.csproj` — boundary contracts
 - [x] `src/RaceHunter.Contracts/HuntContracts.cs` — hunt and plan DTOs
 - [x] `src/RaceHunter.Contracts/RunContracts.cs` — run and progress DTOs
-- [ ] `src/RaceHunter.Contracts/FindingContracts.cs` — finding and timeline DTOs
-- [ ] `src/RaceHunter.Contracts/ReplayContracts.cs` — replay DTOs
+- [x] `src/RaceHunter.Contracts/FindingContracts.cs` — finding and timeline DTOs
+- [x] `src/RaceHunter.Contracts/ReplayContracts.cs` — replay DTOs
 - [x] `src/RaceHunter.Contracts/WorkMessage.cs` — versioned Pub/Sub envelope
 - [x] `src/RaceHunter.Infrastructure/RaceHunter.Infrastructure.csproj` — persistence and cloud adapters
 - [x] `src/RaceHunter.Infrastructure/Persistence/RaceHunterDbContext.cs` — EF Core context
@@ -305,8 +305,8 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] `src/RaceHunter.Concurrency/Invariants/NumericBoundaryEvaluator.cs` — numeric boundary evaluator
 - [x] `src/RaceHunter.Concurrency/Invariants/CardinalityEvaluator.cs` — uniqueness/cardinality evaluator
 - [x] `src/RaceHunter.Concurrency/Invariants/CrossObservationEvaluator.cs` — response/state relationship evaluator
-- [ ] `src/RaceHunter.Concurrency/Minimization/FailureMinimizer.cs` — verified delta reduction
-- [ ] `src/RaceHunter.Concurrency/Replay/ReplayExecutor.cs` — immutable replay execution
+- [x] `src/RaceHunter.Concurrency/Minimization/FailureMinimizer.cs` — verified delta reduction
+- [x] `src/RaceHunter.Concurrency/Replay/ReplayExecutor.cs` — immutable replay execution
 - [x] `src/RaceHunter.Gemini/RaceHunter.Gemini.csproj` — Gemini adapter project
 - [x] `src/RaceHunter.Gemini/GeminiClient.cs` — Google Gen AI SDK wrapper
 - [x] `src/RaceHunter.Gemini/ScenarioPlanner.cs` — structured initial planner
@@ -320,7 +320,7 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] `src/RaceHunter.Api/Program.cs` — API startup and DI
 - [x] `src/RaceHunter.Api/Endpoints/HuntEndpoints.cs` — hunt endpoints
 - [x] `src/RaceHunter.Api/Endpoints/RunEndpoints.cs` — lifecycle and durable cursor-based SSE progress endpoints
-- [ ] `src/RaceHunter.Api/Endpoints/FindingEndpoints.cs` — evidence endpoints
+- [x] `src/RaceHunter.Api/Endpoints/FindingEndpoints.cs` — evidence endpoints and bounded verify-fix route
 - [ ] `src/RaceHunter.Api/Endpoints/ReplayEndpoints.cs` — verify-fix endpoints
 - [ ] `src/RaceHunter.Api/Sandbox/SandboxSessionMiddleware.cs` — signed judge sessions and quotas
 - [x] `src/RaceHunter.Api/Dockerfile` — multi-stage React and API image
@@ -349,9 +349,9 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] `src/RaceHunter.Web/src/pages/NewHuntPage.tsx` — target, rule, and budget input
 - [x] `src/RaceHunter.Web/src/pages/PlanReviewPage.tsx` — one-time plan approval
 - [x] `src/RaceHunter.Web/src/pages/LiveCampaignPage.tsx` — autonomous progress and decisions
-- [ ] `src/RaceHunter.Web/src/pages/FindingPage.tsx` — evidence, minimization, and comparison
-- [ ] `src/RaceHunter.Web/src/components/AgentActivity.tsx` — decision history
-- [ ] `src/RaceHunter.Web/src/components/ActorTimeline.tsx` — causal actor lanes
+- [x] `src/RaceHunter.Web/src/pages/FindingPage.tsx` — evidence, minimization, and comparison
+- [x] `src/RaceHunter.Web/src/components/AgentActivity.tsx` — decision history
+- [x] `src/RaceHunter.Web/src/components/ActorTimeline.tsx` — causal actor lanes
 - [ ] `src/RaceHunter.Web/src/components/BudgetStatus.tsx` — visible bounded autonomy
 - [ ] `src/RaceHunter.Web/src/components/CloudProof.tsx` — model and deployment proof
 - [x] `src/RaceHunter.Web/src/styles/app.css` — responsive accessible styling
@@ -362,7 +362,7 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] `tests/RaceHunter.Concurrency.Tests/RaceHunter.Concurrency.Tests.csproj` — concurrency test project
 - [x] `tests/RaceHunter.Concurrency.Tests/SchedulerTests.cs` — barriers, seeds, limits, cancellation
 - [x] `tests/RaceHunter.Concurrency.Tests/InvariantEvaluatorTests.cs` — evaluator families
-- [ ] `tests/RaceHunter.Concurrency.Tests/MinimizerReplayTests.cs` — reduction and replay
+- [x] `tests/RaceHunter.Concurrency.Tests/MinimizerReplayTests.cs` — reduction and replay
 - [x] `tests/RaceHunter.Infrastructure.IntegrationTests/RaceHunter.Infrastructure.IntegrationTests.csproj` — PostgreSQL and adapter tests
 - [ ] `tests/RaceHunter.Infrastructure.IntegrationTests/PersistenceMessagingTests.cs` — migrations, inbox, repositories
 - [x] `tests/RaceHunter.Api.IntegrationTests/RaceHunter.Api.IntegrationTests.csproj` — API integration tests
@@ -372,10 +372,10 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] `tests/RaceHunter.ReferenceTarget.Tests/InventoryRaceTests.cs` — vulnerable/fixed behavior
 - [x] `tests/RaceHunter.Architecture.Tests/RaceHunter.Architecture.Tests.csproj` — dependency enforcement
 - [x] `tests/RaceHunter.Architecture.Tests/ArchitectureRulesTests.cs` — Clean Architecture constraints
-- [ ] `tests/RaceHunter.AcceptanceTests/package.json` — Playwright project
-- [ ] `tests/RaceHunter.AcceptanceTests/playwright.config.ts` — E2E configuration
-- [ ] `tests/RaceHunter.AcceptanceTests/golden-path.spec.ts` — complete vulnerable/fixed journey
-- [ ] `tests/RaceHunter.AcceptanceTests/recovery.spec.ts` — refresh, cancellation, and failure states
+- [x] `tests/RaceHunter.AcceptanceTests/package.json` — Playwright project
+- [x] `tests/RaceHunter.AcceptanceTests/playwright.config.ts` — E2E configuration
+- [x] `tests/RaceHunter.AcceptanceTests/golden-path.spec.ts` — complete vulnerable/fixed journey
+- [x] `tests/RaceHunter.AcceptanceTests/recovery.spec.ts` — refresh and replay-failure recovery states
 - [x] `docker-compose.yml` — local API, worker, target, PostgreSQL, and Pub/Sub emulator
 - [x] `deploy/terraform/providers.tf` — Google provider and state requirements
 - [x] `deploy/terraform/variables.tf` — project, region, quotas, and image inputs
@@ -391,8 +391,11 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] Phase 1: Walking skeleton, Docker portability, reference target, PostgreSQL foundation, and first Google Cloud smoke deployment
 - [x] Phase 2: Manual deterministic hunt with bounded scheduling, three invariant families, trace evidence, cancellation, and live progress
 - [x] Phase 3: Gemini planning and adaptive strategy loop with one-time approval, Pub/Sub dispatch, idempotency, leases, checkpoints, and explicit failure outcomes
-- [ ] Phase 4: Failure reproduction, deterministic minimization, immutable replay, causal timeline, judge evidence, and vulnerable-versus-fixed Playwright golden path
+- [x] Phase 4: Failure reproduction, deterministic minimization, immutable replay, causal timeline, judge evidence, and vulnerable-versus-fixed Playwright golden path
 - [ ] Phase 5: Security, observability, 100-actor limits, Docker/Terraform staging verification, documentation, architecture diagram, and four-minute submission package
+
+**Phase 4 Test Results**: 133/133 tests passing across 13 suites (125 .NET, 5 Vitest, 3 Playwright); 34 focused Phase 4 checks plus full regression coverage.
+**Phase 4 Code Review**: APPROVED after four adversarial iterations; security and dependency audits passed with no remaining upgrades.
 
 ## Creative Phases
 
@@ -413,16 +416,16 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 ## Build Execution State
 
 **Build Status**: RUNNING
-**Current Phase**: 4 of 5
+**Current Phase**: 5 of 5
 **Auto-Build Mode**: YES
-**Last Completed**: Phase 3 — schema-constrained planning, one-time approval, durable dispatch/recovery, and bounded adaptive execution (2026-08-18)
+**Last Completed**: Phase 4 — measured reproduction, exact-schedule minimization, immutable replay, finding evidence, and vulnerable/fixed UX (2026-08-18)
 **PLAN BACKEND**: anthropic — configured
 **BRAINSTORM CRITIQUE**: skipped — codex unavailable (`unresolved:no-companion`, glob=∅)
 
 ### Resumption Notes
 **Can Resume**: YES
-**Resume From**: Phase 4
-**Notes**: Phases 1 through 3 are implemented and verified locally. Cloud resource creation and deployed smoke testing still require explicit approval. Terraform was authored but cannot be CLI-validated in the current environment.
+**Resume From**: Phase 5
+**Notes**: Phases 1 through 4 are implemented and verified locally. Cloud resource creation and deployed smoke testing still require explicit approval. Terraform was authored but cannot be CLI-validated in the current environment.
 
 ### Halt State
 **Halt Trigger**:
@@ -439,6 +442,7 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - Phase 3/5 | Live Vertex AI invocation | Deferred because the user prohibited credential use and Google Cloud contact without explicit approval. The official `Google.GenAI` Vertex adapter and versioned response schemas compile; deterministic model fakes cover ordinary tests and the local smoke journey.
 - Phase 3/5 | Deployed Pub/Sub and Cloud Run smoke | Deferred with the existing approval gate. The pinned local Pub/Sub emulator exercised the identical push envelope, inbox, lease, checkpoint, retry, and acknowledgement path.
 - Phase 3/5 | Attempt evidence/checkpoint crash gap | The worker persists deterministic trace evidence before its attempt checkpoint in separate transactions, preserving the accepted Phase 2 recoverable Minor: a crash in that narrow gap can leave an unreferenced but queryable trace, while a persisted attempt checkpoint prevents target re-execution after lease recovery.
+- Phase 4/5 | Replay dispatch latency | Verify Fix executes through the private worker boundary with a 30-second bounded HTTP request and durable per-artifact claim rather than a Pub/Sub replay message; the API never executes target work, and Phase 5 retains Cloud Run identity-token wiring and any asynchronous replay hardening.
 
 ### Active Sub-Agents
 - None
@@ -470,3 +474,14 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - Phase 3 compliance remediation attempt 2 RED gate: COMPLETE — two focused adversarial tests were added at the remaining compliance boundaries. The planning test failed to compile against the prior handler because delivery identity and durable checkpoint state were absent; the checkpoint race test now also inspects the generated SQL and requires lease owner, status, and expiry in the atomic update predicate at the commit boundary (2026-08-18)
 - Phase 3 compliance remediation attempt 2 GREEN gate: COMPLETE — 97 .NET tests and 2 Vitest UI tests passed. The agent-decision/event/checkpoint transaction conditionally updates the active lease row before staging inserts and requires one affected row, holding the database row lock through commit so takeover and stale persistence cannot both win. Planning checkpoints now carry cumulative provider calls, completed plans, and terminal outcomes; recovered planning receives only its remaining model-call allowance, and a one-call budget with a five-retry ceiling makes exactly one provider invocation before the explicit `BudgetExhausted` outcome (2026-08-18)
 - Phase 3 compliance remediation attempt 2 portability/review: COMPLETE — Release tests, formatting verification, architecture checks, TypeScript lint, Vitest, Vite production build, Compose validation, and the worker image build passed. The prior fresh-volume Pub/Sub end-to-end smoke remains current because this remediation changes only guarded persistence and recovery accounting and both paths have deterministic database/worker coverage. The accepted trace/checkpoint crash-gap Minor remains visible; no credentials, live model calls, Google Cloud contact, remote, push, PR, or deployment occurred (2026-08-18)
+- Phase 4 RED gates: COMPLETE — missing finding/replay application contracts, minimizer behavior, immutable persistence, UI projection, and browser journey failed at compile/module resolution; later adversarial RED tests reproduced PostgreSQL timestamp fingerprint drift, delimiter-collision risk, mutable replay steps, incomplete minimizer candidate exploration, mixed-attempt timelines, async finding-link staleness, concurrent Verify Fix duplication, and decision-checkpoint recovery loss (2026-08-18)
+- Phase 4 GREEN gate: COMPLETE — 34 focused checks passed for exact 3/3 reference reproduction, deterministic actor/step reduction, exact seeded-offset propagation and recovery, immutable structured fingerprints, PostgreSQL round trips, atomic finding evidence, one server-owned fixed replay under synchronized concurrency, attempt-filtered actor lanes, Agent Activity, API Problem Details, React refresh/recovery, and the full Playwright journey (2026-08-18)
+- Phase 4 integration verification: COMPLETE — 133/133 tests passed across 13 suites (125 .NET, 5 Vitest, 3 Playwright); warning-free Release and Vite builds, .NET formatting, TypeScript lint, Compose configuration, Redocly OpenAPI validation, NuGet/npm vulnerability audits, and three fresh image builds passed (2026-08-18)
+- Phase 4 Docker golden path: COMPLETE — a fresh-volume Compose plan/approve/run produced the exact verified message, three failed reproductions, a two-actor/two-step artifact, one-attempt causal timeline, persisted Agent Activity, vulnerable `Fail`, fixed `Pass`, one fixed attempt across distinct keys, and an unchanged artifact; containers and both test volumes were removed afterward (2026-08-18)
+- Phase 4 review/documentation: COMPLETE — four adversarial review iterations closed exact-schedule, recovery, claim-race, no-transaction-across-HTTP, no-inline-SQL, API-contract, dependency, and evidence-projection findings; README, technical context, system patterns, and OpenAPI 3.1 were updated. Cloud Run IAM/ID tokens, observability, staging, and deployment remain Phase 5; no credentials, Google Cloud contact, remote, push, PR, or deployment occurred (2026-08-18)
+
+### Current Build Step
+**Step**: Step 11 - Phase Git Completion
+**Status**: COMPLETE
+**Completed**: 2026-08-18
+**Output**: Phase 4 committed locally on the feature branch; execution state advances to Phase 5 with durable RED/GREEN, verification, review, documentation, and Docker evidence. No remote, push, PR, or deployment was created.

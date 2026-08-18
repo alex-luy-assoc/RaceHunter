@@ -22,17 +22,23 @@ describe('persisted run progress', () => {
   it('loads the current run and every PostgreSQL history page before choosing the SSE cursor', async () => {
     const calls: string[] = []
     const firstPage = Array.from({ length: 100 }, (_, index) => event(index + 1))
+    let runReads = 0
     const result = await loadPersistedRunProgress('run-1', {
-      getRun: async () => { calls.push('run'); return run },
+      getRun: async () => {
+        calls.push('run')
+        runReads++
+        return runReads === 1 ? run : { ...run, status: 'Completed', findingId: 'finding-1' }
+      },
       getEvents: async (_, after) => {
         calls.push(`events:${after}`)
         return after === 0 ? firstPage : [event(101)]
       }
     })
 
-    expect(calls).toEqual(['run', 'events:0', 'events:100'])
+    expect(calls).toEqual(['run', 'events:0', 'events:100', 'run'])
     expect(result.events).toHaveLength(101)
     expect(result.after).toBe(101)
+    expect(result.run.findingId).toBe('finding-1')
   })
 
   it('deduplicates and orders a reconnect event against hydrated history', () => {

@@ -65,6 +65,7 @@ services:
       PubSub__TopicId: racehunter-work
       PubSub__DeadLetterTopicId: racehunter-dead-letter
       PubSub__UseEmulator: "true"
+      Worker__BaseUrl: http://worker:8080
     ports:
       - "8080:8080"
     healthcheck:
@@ -93,6 +94,7 @@ services:
       PubSub__DeadLetterTopicId: racehunter-dead-letter
       PubSub__UseEmulator: "true"
       PubSub__RequireAuthentication: "false"
+      ReferenceTarget__DemoControlKey: local-demo-only
     ports:
       - "8081:8080"
     healthcheck:

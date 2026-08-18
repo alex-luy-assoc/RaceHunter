@@ -214,3 +214,109 @@ internal sealed class AgentIterationConfiguration : IEntityTypeConfiguration<Age
         builder.HasOne<RunRecord>().WithMany().HasForeignKey(item => item.RunId).OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+internal sealed class FindingConfiguration : IEntityTypeConfiguration<FindingRecord>
+{
+    public void Configure(EntityTypeBuilder<FindingRecord> builder)
+    {
+        builder.ToTable("findings");
+        builder.HasKey(item => item.Id);
+        builder.Property(item => item.Id).HasColumnName("id").ValueGeneratedNever();
+        builder.Property(item => item.RunId).HasColumnName("run_id");
+        builder.Property(item => item.InvariantVersionId).HasColumnName("invariant_version_id").HasMaxLength(64).IsRequired();
+        builder.Property(item => item.InvariantOutcome).HasColumnName("invariant_outcome").HasMaxLength(32).IsRequired();
+        builder.Property(item => item.InvariantSummary).HasColumnName("invariant_summary").HasMaxLength(1000).IsRequired();
+        builder.Property(item => item.TraceReferencesJson).HasColumnName("trace_references_json").HasColumnType("jsonb").IsRequired();
+        builder.Property(item => item.ReplayArtifactId).HasColumnName("replay_artifact_id");
+        builder.Property(item => item.AgentInterpretation).HasColumnName("agent_interpretation").HasMaxLength(2000).IsRequired();
+        builder.Property(item => item.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamp with time zone");
+        builder.HasIndex(item => item.RunId).IsUnique();
+        builder.HasIndex(item => item.ReplayArtifactId).IsUnique();
+        builder.HasOne<RunRecord>().WithMany().HasForeignKey(item => item.RunId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<ReplayArtifactRecord>().WithOne().HasForeignKey<FindingRecord>(item => item.ReplayArtifactId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal sealed class FindingReproductionConfiguration : IEntityTypeConfiguration<FindingReproductionRecord>
+{
+    public void Configure(EntityTypeBuilder<FindingReproductionRecord> builder)
+    {
+        builder.ToTable("finding_reproductions");
+        builder.HasKey(item => new { item.FindingId, item.Attempt });
+        builder.Property(item => item.FindingId).HasColumnName("finding_id");
+        builder.Property(item => item.Attempt).HasColumnName("attempt");
+        builder.Property(item => item.Outcome).HasColumnName("outcome").HasMaxLength(32).IsRequired();
+        builder.Property(item => item.TraceReferencesJson).HasColumnName("trace_references_json").HasColumnType("jsonb").IsRequired();
+        builder.HasOne(item => item.Finding).WithMany(item => item.Reproductions).HasForeignKey(item => item.FindingId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+internal sealed class ReplayArtifactConfiguration : IEntityTypeConfiguration<ReplayArtifactRecord>
+{
+    public void Configure(EntityTypeBuilder<ReplayArtifactRecord> builder)
+    {
+        builder.ToTable("replay_artifacts");
+        builder.HasKey(item => item.Id);
+        builder.Property(item => item.Id).HasColumnName("id").ValueGeneratedNever();
+        builder.Property(item => item.FindingId).HasColumnName("finding_id");
+        builder.Property(item => item.ScenarioVersionId).HasColumnName("scenario_version_id").HasMaxLength(64).IsRequired();
+        builder.Property(item => item.InvariantVersionId).HasColumnName("invariant_version_id").HasMaxLength(64).IsRequired();
+        builder.Property(item => item.TargetSnapshot).HasColumnName("target_snapshot").HasMaxLength(500).IsRequired();
+        builder.Property(item => item.Strategy).HasColumnName("strategy").HasMaxLength(64).IsRequired();
+        builder.Property(item => item.Seed).HasColumnName("seed");
+        builder.Property(item => item.RequestTemplateJson).HasColumnName("request_template_json").HasColumnType("jsonb").IsRequired();
+        builder.Property(item => item.Fingerprint).HasColumnName("fingerprint").HasMaxLength(80).IsRequired();
+        builder.Property(item => item.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamp with time zone");
+        builder.HasIndex(item => item.FindingId).IsUnique();
+        builder.HasIndex(item => item.Fingerprint).IsUnique();
+    }
+}
+
+internal sealed class ReplayStepConfiguration : IEntityTypeConfiguration<ReplayStepRecord>
+{
+    public void Configure(EntityTypeBuilder<ReplayStepRecord> builder)
+    {
+        builder.ToTable("replay_steps");
+        builder.HasKey(item => new { item.ArtifactId, item.Position });
+        builder.Property(item => item.ArtifactId).HasColumnName("artifact_id");
+        builder.Property(item => item.Position).HasColumnName("position");
+        builder.Property(item => item.ActorId).HasColumnName("actor_id");
+        builder.Property(item => item.StepId).HasColumnName("step_id").HasMaxLength(120).IsRequired();
+        builder.Property(item => item.OperationId).HasColumnName("operation_id").HasMaxLength(120).IsRequired();
+        builder.Property(item => item.OffsetMilliseconds).HasColumnName("offset_ms");
+        builder.HasOne(item => item.Artifact).WithMany(item => item.Steps).HasForeignKey(item => item.ArtifactId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+internal sealed class ReplayAttemptConfiguration : IEntityTypeConfiguration<ReplayAttemptRecord>
+{
+    public void Configure(EntityTypeBuilder<ReplayAttemptRecord> builder)
+    {
+        builder.ToTable("replay_attempts");
+        builder.HasKey(item => item.Id);
+        builder.Property(item => item.Id).HasColumnName("id").ValueGeneratedNever();
+        builder.Property(item => item.ArtifactId).HasColumnName("artifact_id");
+        builder.Property(item => item.TargetMode).HasColumnName("target_mode").HasMaxLength(32).IsRequired();
+        builder.Property(item => item.Outcome).HasColumnName("outcome").HasMaxLength(32).IsRequired();
+        builder.Property(item => item.TraceReferencesJson).HasColumnName("trace_references_json").HasColumnType("jsonb").IsRequired();
+        builder.Property(item => item.ArtifactFingerprint).HasColumnName("artifact_fingerprint").HasMaxLength(80).IsRequired();
+        builder.Property(item => item.IdempotencyKey).HasColumnName("idempotency_key").HasMaxLength(160).IsRequired();
+        builder.Property(item => item.CompletedAtUtc).HasColumnName("completed_at_utc").HasColumnType("timestamp with time zone");
+        builder.HasIndex(item => new { item.ArtifactId, item.IdempotencyKey }).IsUnique();
+        builder.HasIndex(item => item.ArtifactId).IsUnique().HasFilter("target_mode = 'Fixed'");
+        builder.HasOne(item => item.Artifact).WithMany(item => item.Attempts).HasForeignKey(item => item.ArtifactId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+internal sealed class ReplayExecutionClaimConfiguration : IEntityTypeConfiguration<ReplayExecutionClaimRecord>
+{
+    public void Configure(EntityTypeBuilder<ReplayExecutionClaimRecord> builder)
+    {
+        builder.ToTable("replay_execution_claims");
+        builder.HasKey(item => item.ArtifactId);
+        builder.Property(item => item.ArtifactId).HasColumnName("artifact_id");
+        builder.Property(item => item.Owner).HasColumnName("owner").HasMaxLength(64).IsRequired();
+        builder.Property(item => item.ClaimedAtUtc).HasColumnName("claimed_at_utc").HasColumnType("timestamp with time zone");
+        builder.HasOne(item => item.Artifact).WithMany().HasForeignKey(item => item.ArtifactId).OnDelete(DeleteBehavior.Cascade);
+    }
+}

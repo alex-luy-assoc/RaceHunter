@@ -1,6 +1,7 @@
 import { NewHuntPage } from './pages/NewHuntPage'
 import { PlanReviewPage } from './pages/PlanReviewPage'
 import { LiveCampaignPage } from './pages/LiveCampaignPage'
+import { FindingPage } from './pages/FindingPage'
 
 export function App() {
   const path = window.location.pathname
@@ -9,6 +10,8 @@ export function App() {
   if (plan) return <PlanReviewPage huntId={plan[1]} />
   const run = path.match(/^\/runs\/([0-9a-f-]+)$/i)
   if (run) return <LiveCampaignPage runId={run[1]} />
+  const finding = path.match(/^\/findings\/([0-9a-f-]+)$/i)
+  if (finding) return <FindingPage findingId={finding[1]} />
   return (
     <main>
       <header>

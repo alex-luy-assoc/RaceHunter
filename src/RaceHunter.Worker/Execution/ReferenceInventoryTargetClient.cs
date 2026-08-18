@@ -2,11 +2,24 @@ using System.Net;
 using System.Net.Http.Json;
 using RaceHunter.Concurrency.Scheduling;
 using RaceHunter.Domain.Invariants;
+using RaceHunter.Domain.Replays;
 
 namespace RaceHunter.Worker.Execution;
 
 internal sealed class ReferenceInventoryTargetClient(HttpClient client)
 {
+    public async Task ResetAsync(ReplayTargetMode mode, string demoControlKey, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(demoControlKey)) throw new InvalidOperationException("ReferenceTarget:DemoControlKey is required for replay.");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/demo/reset")
+        {
+            Content = JsonContent.Create(new { quantity = 1, mode = mode == ReplayTargetMode.Fixed ? "fixed" : "vulnerable" })
+        };
+        request.Headers.Add("X-Demo-Control-Key", demoControlKey);
+        using var response = await client.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task<TargetCallResult> PlaceOrderAsync(Guid runId, ScheduledActor actor, CancellationToken cancellationToken)
     {
         var requestId = Guid.NewGuid().ToString("N");

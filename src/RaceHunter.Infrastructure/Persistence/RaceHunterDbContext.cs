@@ -17,6 +17,12 @@ internal sealed class RaceHunterDbContext(DbContextOptions<RaceHunterDbContext> 
     internal DbSet<WorkInboxRecord> WorkInbox => Set<WorkInboxRecord>();
     internal DbSet<DeadLetterRecord> DeadLetters => Set<DeadLetterRecord>();
     internal DbSet<AgentIterationPersistenceRecord> AgentIterations => Set<AgentIterationPersistenceRecord>();
+    internal DbSet<FindingRecord> Findings => Set<FindingRecord>();
+    internal DbSet<FindingReproductionRecord> FindingReproductions => Set<FindingReproductionRecord>();
+    internal DbSet<ReplayArtifactRecord> ReplayArtifacts => Set<ReplayArtifactRecord>();
+    internal DbSet<ReplayStepRecord> ReplaySteps => Set<ReplayStepRecord>();
+    internal DbSet<ReplayAttemptRecord> ReplayAttempts => Set<ReplayAttemptRecord>();
+    internal DbSet<ReplayExecutionClaimRecord> ReplayExecutionClaims => Set<ReplayExecutionClaimRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -31,6 +37,12 @@ internal sealed class RaceHunterDbContext(DbContextOptions<RaceHunterDbContext> 
         modelBuilder.ApplyConfiguration(new WorkInboxConfiguration());
         modelBuilder.ApplyConfiguration(new DeadLetterConfiguration());
         modelBuilder.ApplyConfiguration(new AgentIterationConfiguration());
+        modelBuilder.ApplyConfiguration(new FindingConfiguration());
+        modelBuilder.ApplyConfiguration(new FindingReproductionConfiguration());
+        modelBuilder.ApplyConfiguration(new ReplayArtifactConfiguration());
+        modelBuilder.ApplyConfiguration(new ReplayStepConfiguration());
+        modelBuilder.ApplyConfiguration(new ReplayAttemptConfiguration());
+        modelBuilder.ApplyConfiguration(new ReplayExecutionClaimConfiguration());
     }
 }
 
@@ -176,4 +188,75 @@ internal sealed class AgentIterationPersistenceRecord
     public required string SchemaVersion { get; set; }
     public required string ModelInvocationId { get; set; }
     public DateTime OccurredAtUtc { get; set; }
+}
+
+internal sealed class FindingRecord
+{
+    public Guid Id { get; set; }
+    public Guid RunId { get; set; }
+    public required string InvariantVersionId { get; set; }
+    public required string InvariantOutcome { get; set; }
+    public required string InvariantSummary { get; set; }
+    public required string TraceReferencesJson { get; set; }
+    public Guid ReplayArtifactId { get; set; }
+    public required string AgentInterpretation { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public List<FindingReproductionRecord> Reproductions { get; set; } = [];
+}
+
+internal sealed class FindingReproductionRecord
+{
+    public Guid FindingId { get; set; }
+    public int Attempt { get; set; }
+    public required string Outcome { get; set; }
+    public required string TraceReferencesJson { get; set; }
+    public FindingRecord Finding { get; set; } = null!;
+}
+
+internal sealed class ReplayArtifactRecord
+{
+    public Guid Id { get; set; }
+    public Guid FindingId { get; set; }
+    public required string ScenarioVersionId { get; set; }
+    public required string InvariantVersionId { get; set; }
+    public required string TargetSnapshot { get; set; }
+    public required string Strategy { get; set; }
+    public int Seed { get; set; }
+    public required string RequestTemplateJson { get; set; }
+    public required string Fingerprint { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public List<ReplayStepRecord> Steps { get; set; } = [];
+    public List<ReplayAttemptRecord> Attempts { get; set; } = [];
+}
+
+internal sealed class ReplayStepRecord
+{
+    public Guid ArtifactId { get; set; }
+    public int Position { get; set; }
+    public int ActorId { get; set; }
+    public required string StepId { get; set; }
+    public required string OperationId { get; set; }
+    public int OffsetMilliseconds { get; set; }
+    public ReplayArtifactRecord Artifact { get; set; } = null!;
+}
+
+internal sealed class ReplayAttemptRecord
+{
+    public Guid Id { get; set; }
+    public Guid ArtifactId { get; set; }
+    public required string TargetMode { get; set; }
+    public required string Outcome { get; set; }
+    public required string TraceReferencesJson { get; set; }
+    public required string ArtifactFingerprint { get; set; }
+    public required string IdempotencyKey { get; set; }
+    public DateTime CompletedAtUtc { get; set; }
+    public ReplayArtifactRecord Artifact { get; set; } = null!;
+}
+
+internal sealed class ReplayExecutionClaimRecord
+{
+    public Guid ArtifactId { get; set; }
+    public required string Owner { get; set; }
+    public DateTime ClaimedAtUtc { get; set; }
+    public ReplayArtifactRecord Artifact { get; set; } = null!;
 }

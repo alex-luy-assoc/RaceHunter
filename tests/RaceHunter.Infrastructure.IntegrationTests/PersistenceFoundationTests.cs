@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using RaceHunter.Application.Projects;
 using RaceHunter.Domain.Budgets;
 using RaceHunter.Domain.Projects;
+using RaceHunter.Domain.Replays;
 using RaceHunter.Domain.Runs;
 using RaceHunter.Domain.Tracing;
 using RaceHunter.Infrastructure.Persistence;
@@ -125,6 +126,35 @@ public sealed class PersistenceFoundationTests(PersistenceDatabaseFixture fixtur
         var traces = await store.GetAsync(runId, 0, CancellationToken.None);
 
         Assert.Equal([1L, 2L], traces.Select(item => item.Sequence));
+    }
+
+    [Fact]
+    public async Task Replay_artifact_fingerprint_survives_postgresql_timestamp_precision()
+    {
+        await using var context = CreateContext();
+        await context.Database.MigrateAsync();
+        var store = new FindingStore(context);
+        var findingId = Guid.NewGuid();
+        var artifact = ReplayArtifact.Create(
+            Guid.NewGuid(),
+            findingId,
+            "scenario-v1",
+            "invariant-v1",
+            "inventory:one-unit",
+            "checkpoint-interleaving",
+            1729,
+            [new ReplayStep(1, "place-order", "place-order", 0), new ReplayStep(2, "place-order", "place-order", 0)],
+            "{\"quantity\":1}",
+            DateTime.UtcNow);
+
+        await store.AddArtifactAsync(artifact, CancellationToken.None);
+        context.ChangeTracker.Clear();
+
+        var loaded = await store.GetArtifactAsync(artifact.Id, CancellationToken.None);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(artifact.Fingerprint, loaded.Fingerprint);
+        Assert.Equal(artifact.CreatedAtUtc, loaded.CreatedAtUtc);
     }
 
     private RaceHunterDbContext CreateContext() => new(

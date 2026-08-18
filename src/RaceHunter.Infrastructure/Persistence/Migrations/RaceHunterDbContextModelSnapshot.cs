@@ -173,6 +173,82 @@ internal sealed class RaceHunterDbContextModelSnapshot : ModelSnapshot
             entity.HasIndex("RunId", "Iteration").IsUnique();
             entity.ToTable("agent_iterations");
         });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.FindingRecord", entity =>
+        {
+            entity.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
+            entity.Property<string>("AgentInterpretation").IsRequired().HasMaxLength(2000).HasColumnType("character varying(2000)").HasColumnName("agent_interpretation");
+            entity.Property<DateTime>("CreatedAtUtc").HasColumnType("timestamp with time zone").HasColumnName("created_at_utc");
+            entity.Property<string>("InvariantOutcome").IsRequired().HasMaxLength(32).HasColumnType("character varying(32)").HasColumnName("invariant_outcome");
+            entity.Property<string>("InvariantSummary").IsRequired().HasMaxLength(1000).HasColumnType("character varying(1000)").HasColumnName("invariant_summary");
+            entity.Property<string>("InvariantVersionId").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)").HasColumnName("invariant_version_id");
+            entity.Property<Guid>("ReplayArtifactId").HasColumnType("uuid").HasColumnName("replay_artifact_id");
+            entity.Property<Guid>("RunId").HasColumnType("uuid").HasColumnName("run_id");
+            entity.Property<string>("TraceReferencesJson").IsRequired().HasColumnType("jsonb").HasColumnName("trace_references_json");
+            entity.HasKey("Id");
+            entity.HasIndex("ReplayArtifactId").IsUnique();
+            entity.HasIndex("RunId").IsUnique();
+            entity.ToTable("findings");
+        });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.FindingReproductionRecord", entity =>
+        {
+            entity.Property<Guid>("FindingId").HasColumnType("uuid").HasColumnName("finding_id");
+            entity.Property<int>("Attempt").HasColumnType("integer").HasColumnName("attempt");
+            entity.Property<string>("Outcome").IsRequired().HasMaxLength(32).HasColumnType("character varying(32)").HasColumnName("outcome");
+            entity.Property<string>("TraceReferencesJson").IsRequired().HasColumnType("jsonb").HasColumnName("trace_references_json");
+            entity.HasKey("FindingId", "Attempt");
+            entity.ToTable("finding_reproductions");
+        });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.ReplayArtifactRecord", entity =>
+        {
+            entity.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
+            entity.Property<DateTime>("CreatedAtUtc").HasColumnType("timestamp with time zone").HasColumnName("created_at_utc");
+            entity.Property<Guid>("FindingId").HasColumnType("uuid").HasColumnName("finding_id");
+            entity.Property<string>("Fingerprint").IsRequired().HasMaxLength(80).HasColumnType("character varying(80)").HasColumnName("fingerprint");
+            entity.Property<string>("InvariantVersionId").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)").HasColumnName("invariant_version_id");
+            entity.Property<string>("RequestTemplateJson").IsRequired().HasColumnType("jsonb").HasColumnName("request_template_json");
+            entity.Property<string>("ScenarioVersionId").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)").HasColumnName("scenario_version_id");
+            entity.Property<int>("Seed").HasColumnType("integer").HasColumnName("seed");
+            entity.Property<string>("Strategy").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)").HasColumnName("strategy");
+            entity.Property<string>("TargetSnapshot").IsRequired().HasMaxLength(500).HasColumnType("character varying(500)").HasColumnName("target_snapshot");
+            entity.HasKey("Id");
+            entity.HasIndex("FindingId").IsUnique();
+            entity.HasIndex("Fingerprint").IsUnique();
+            entity.ToTable("replay_artifacts");
+        });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.ReplayStepRecord", entity =>
+        {
+            entity.Property<Guid>("ArtifactId").HasColumnType("uuid").HasColumnName("artifact_id");
+            entity.Property<int>("Position").HasColumnType("integer").HasColumnName("position");
+            entity.Property<int>("ActorId").HasColumnType("integer").HasColumnName("actor_id");
+            entity.Property<int>("OffsetMilliseconds").HasColumnType("integer").HasColumnName("offset_ms");
+            entity.Property<string>("OperationId").IsRequired().HasMaxLength(120).HasColumnType("character varying(120)").HasColumnName("operation_id");
+            entity.Property<string>("StepId").IsRequired().HasMaxLength(120).HasColumnType("character varying(120)").HasColumnName("step_id");
+            entity.HasKey("ArtifactId", "Position");
+            entity.ToTable("replay_steps");
+        });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.ReplayAttemptRecord", entity =>
+        {
+            entity.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
+            entity.Property<Guid>("ArtifactId").HasColumnType("uuid").HasColumnName("artifact_id");
+            entity.Property<string>("ArtifactFingerprint").IsRequired().HasMaxLength(80).HasColumnType("character varying(80)").HasColumnName("artifact_fingerprint");
+            entity.Property<DateTime>("CompletedAtUtc").HasColumnType("timestamp with time zone").HasColumnName("completed_at_utc");
+            entity.Property<string>("IdempotencyKey").IsRequired().HasMaxLength(160).HasColumnType("character varying(160)").HasColumnName("idempotency_key");
+            entity.Property<string>("Outcome").IsRequired().HasMaxLength(32).HasColumnType("character varying(32)").HasColumnName("outcome");
+            entity.Property<string>("TargetMode").IsRequired().HasMaxLength(32).HasColumnType("character varying(32)").HasColumnName("target_mode");
+            entity.Property<string>("TraceReferencesJson").IsRequired().HasColumnType("jsonb").HasColumnName("trace_references_json");
+            entity.HasKey("Id");
+            entity.HasIndex("ArtifactId").IsUnique().HasFilter("target_mode = 'Fixed'");
+            entity.HasIndex("ArtifactId", "IdempotencyKey").IsUnique();
+            entity.ToTable("replay_attempts");
+        });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.ReplayExecutionClaimRecord", entity =>
+        {
+            entity.Property<Guid>("ArtifactId").HasColumnType("uuid").HasColumnName("artifact_id");
+            entity.Property<DateTime>("ClaimedAtUtc").HasColumnType("timestamp with time zone").HasColumnName("claimed_at_utc");
+            entity.Property<string>("Owner").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)").HasColumnName("owner");
+            entity.HasKey("ArtifactId");
+            entity.ToTable("replay_execution_claims");
+        });
         modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.HuntEventRecord", entity =>
         {
             entity.HasOne("RaceHunter.Infrastructure.Persistence.HuntRecord", "Hunt")
@@ -220,7 +296,62 @@ internal sealed class RaceHunterDbContextModelSnapshot : ModelSnapshot
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired();
         });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.FindingRecord", entity =>
+        {
+            entity.HasOne("RaceHunter.Infrastructure.Persistence.RunRecord", null)
+                .WithMany()
+                .HasForeignKey("RunId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+            entity.HasOne("RaceHunter.Infrastructure.Persistence.ReplayArtifactRecord", null)
+                .WithOne()
+                .HasForeignKey("RaceHunter.Infrastructure.Persistence.FindingRecord", "ReplayArtifactId")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+        });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.FindingReproductionRecord", entity =>
+        {
+            entity.HasOne("RaceHunter.Infrastructure.Persistence.FindingRecord", "Finding")
+                .WithMany("Reproductions")
+                .HasForeignKey("FindingId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+            entity.Navigation("Finding");
+        });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.ReplayAttemptRecord", entity =>
+        {
+            entity.HasOne("RaceHunter.Infrastructure.Persistence.ReplayArtifactRecord", "Artifact")
+                .WithMany("Attempts")
+                .HasForeignKey("ArtifactId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+            entity.Navigation("Artifact");
+        });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.ReplayExecutionClaimRecord", entity =>
+        {
+            entity.HasOne("RaceHunter.Infrastructure.Persistence.ReplayArtifactRecord", "Artifact")
+                .WithMany()
+                .HasForeignKey("ArtifactId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+            entity.Navigation("Artifact");
+        });
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.ReplayStepRecord", entity =>
+        {
+            entity.HasOne("RaceHunter.Infrastructure.Persistence.ReplayArtifactRecord", "Artifact")
+                .WithMany("Steps")
+                .HasForeignKey("ArtifactId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+            entity.Navigation("Artifact");
+        });
         modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.HuntRecord", entity => entity.Navigation("Events"));
         modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.RunRecord", entity => entity.Navigation("Events"));
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.FindingRecord", entity => entity.Navigation("Reproductions"));
+        modelBuilder.Entity("RaceHunter.Infrastructure.Persistence.ReplayArtifactRecord", entity =>
+        {
+            entity.Navigation("Attempts");
+            entity.Navigation("Steps");
+        });
     }
 }

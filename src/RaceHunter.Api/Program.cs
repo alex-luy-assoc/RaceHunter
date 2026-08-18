@@ -1,8 +1,10 @@
 using RaceHunter.Api.Endpoints;
 using RaceHunter.Api.Messaging;
+using RaceHunter.Api.Replay;
 using RaceHunter.Application.Hunts;
 using RaceHunter.Application.Messaging;
 using RaceHunter.Application.Projects;
+using RaceHunter.Application.Replays;
 using RaceHunter.Contracts;
 using RaceHunter.Infrastructure.Messaging;
 using RaceHunter.Infrastructure.Persistence;
@@ -26,6 +28,13 @@ else
 }
 builder.Services.AddScoped<OutboxDispatcher>();
 builder.Services.AddHostedService<OutboxDispatchService>();
+builder.Services.AddHttpClient<IReplayExecution, WorkerReplayExecution>((services, client) =>
+{
+    var baseUrl = services.GetRequiredService<IConfiguration>()["Worker:BaseUrl"]
+        ?? throw new InvalidOperationException("Worker:BaseUrl is required for Verify Fix replay execution.");
+    client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
@@ -47,6 +56,7 @@ app.MapGet("/api/projects/{id:guid}", async (Guid id, ProjectService service, Ca
 });
 app.MapRunEndpoints();
 app.MapHuntEndpoints();
+app.MapFindingEndpoints();
 app.MapFallbackToFile("index.html");
 app.Run();
 

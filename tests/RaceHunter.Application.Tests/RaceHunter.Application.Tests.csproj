@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\..\src\RaceHunter.Application\RaceHunter.Application.csproj" />
+    <ProjectReference Include="..\..\src\RaceHunter.Concurrency\RaceHunter.Concurrency.csproj" />
     <ProjectReference Include="..\..\src\RaceHunter.Domain\RaceHunter.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>

@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using RaceHunter.Application.Abstractions;
+using RaceHunter.Application.Findings;
 using RaceHunter.Application.Hunts;
 using RaceHunter.Application.Messaging;
 using RaceHunter.Application.Projects;
+using RaceHunter.Application.Replays;
 using RaceHunter.Application.Runs;
 
 namespace RaceHunter.Infrastructure.Persistence;
@@ -20,6 +22,10 @@ public static class PersistenceRegistration
         services.AddScoped<IHuntWorkflowStore>(provider => provider.GetRequiredService<HuntWorkflowStore>());
         services.AddScoped<IOutboxStore>(provider => provider.GetRequiredService<HuntWorkflowStore>());
         services.AddScoped<IAgentIterationStore>(provider => provider.GetRequiredService<HuntWorkflowStore>());
+        services.AddScoped<FindingStore>();
+        services.AddScoped<IFindingStore>(provider => provider.GetRequiredService<FindingStore>());
+        services.AddScoped<IReplayStore>(provider => provider.GetRequiredService<FindingStore>());
+        services.AddScoped<IAgentIterationReader>(provider => provider.GetRequiredService<FindingStore>());
         services.AddScoped<IWorkInbox, WorkInboxStore>();
         services.AddScoped<IWorkSubjectStore, WorkSubjectStore>();
         services.AddScoped<IAgentDecisionCheckpointStore, AgentDecisionCheckpointStore>();
@@ -35,6 +41,8 @@ public static class PersistenceRegistration
         services.AddScoped<CreateHunt>();
         services.AddScoped<GeneratePlan>();
         services.AddScoped<ApproveAndRun>();
+        services.AddScoped<GetFinding>();
+        services.AddScoped<VerifyFix>();
         return services;
     }
 

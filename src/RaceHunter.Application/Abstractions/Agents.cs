@@ -47,7 +47,15 @@ public enum AgentActionKind
 }
 
 public sealed record CampaignSettings(int ActorCount, string Strategy, int TimingAdjustmentMs);
-public sealed record EvidenceSummary(string InvariantOutcome, IReadOnlyList<string> TraceReferences, int AttemptNumber, int RequestsConsumed, int ModelCallsConsumed = 0);
+public sealed record DeterministicReplayStep(int ActorId, int OffsetMilliseconds);
+public sealed record EvidenceSummary(
+    string InvariantOutcome,
+    IReadOnlyList<string> TraceReferences,
+    int AttemptNumber,
+    int RequestsConsumed,
+    int ModelCallsConsumed = 0,
+    IReadOnlyList<DeterministicReplayStep>? Schedule = null,
+    CampaignSettings? AttemptSettings = null);
 
 public sealed record StrategySelectionContext(
     Guid ExperimentId,
@@ -200,7 +208,11 @@ public sealed class AdaptiveCampaignContext
     public DeterministicAttemptResult? RecoveredAttempt { get; }
 }
 
-public sealed record DeterministicAttemptResult(InvariantOutcome InvariantOutcome, IReadOnlyList<string> TraceReferences, int RequestsConsumed = 0);
+public sealed record DeterministicAttemptResult(
+    InvariantOutcome InvariantOutcome,
+    IReadOnlyList<string> TraceReferences,
+    int RequestsConsumed = 0,
+    IReadOnlyList<DeterministicReplayStep>? Schedule = null);
 
 public enum CampaignOutcome
 {
@@ -216,7 +228,9 @@ public sealed record AdaptiveCampaignResult(
     bool VerifiedViolation,
     int Attempts,
     int ModelCalls,
-    IReadOnlyList<StrategyDecision> Decisions);
+    IReadOnlyList<StrategyDecision> Decisions,
+    CampaignSettings? FailedSettings = null,
+    DeterministicAttemptResult? FailedAttempt = null);
 
 public sealed class AdaptiveStrategyLoop(IExperimentStrategist strategist)
 {
@@ -232,6 +246,8 @@ public sealed class AdaptiveStrategyLoop(IExperimentStrategist strategist)
         var verified = false;
         var requestsConsumed = context.RequestsAlreadyConsumed;
         var modelCallsConsumed = context.ModelCallsAlreadyConsumed;
+        CampaignSettings? failedSettings = null;
+        DeterministicAttemptResult? failedAttempt = null;
         for (var iteration = context.ResumeAfterIteration + 1; iteration <= context.MaxIterations; iteration++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -249,8 +265,13 @@ public sealed class AdaptiveStrategyLoop(IExperimentStrategist strategist)
                 requestsConsumed = checked(requestsConsumed + attempt.RequestsConsumed);
             }
             verified |= attempt.InvariantOutcome == InvariantOutcome.Fail;
+            if (attempt.InvariantOutcome == InvariantOutcome.Fail)
+            {
+                failedSettings = settings;
+                failedAttempt = attempt;
+            }
 
-            var evidence = new EvidenceSummary(attempt.InvariantOutcome.ToString(), attempt.TraceReferences, iteration, requestsConsumed, modelCallsConsumed);
+            var evidence = new EvidenceSummary(attempt.InvariantOutcome.ToString(), attempt.TraceReferences, iteration, requestsConsumed, modelCallsConsumed, attempt.Schedule, settings);
             if (!recovered && attemptSink is not null) await attemptSink(iteration, settings, evidence, cancellationToken);
 
             if (modelCallsConsumed >= context.Budget.MaxModelCalls)
@@ -303,7 +324,7 @@ public sealed class AdaptiveStrategyLoop(IExperimentStrategist strategist)
             if (decision.Action is AgentActionKind.Stop or AgentActionKind.StartMinimization)
             {
                 var outcome = verified ? CampaignOutcome.VerifiedViolation : CampaignOutcome.CompletedWithoutFinding;
-                return new AdaptiveCampaignResult(outcome, verified, iteration, modelCallsConsumed, decisions);
+                return new AdaptiveCampaignResult(outcome, verified, iteration, modelCallsConsumed, decisions, failedSettings, failedAttempt);
             }
 
             settings = new CampaignSettings(decision.ActorCount, decision.Strategy, decision.TimingAdjustmentMs);

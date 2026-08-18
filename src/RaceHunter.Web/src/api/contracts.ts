@@ -22,4 +22,52 @@ export type RunResponse = {
   startedAtUtc: string | null
   completedAtUtc: string | null
   cancellationRequestedAtUtc: string | null
+  findingId?: string | null
+}
+
+export type ReplayStep = { actorId: number; stepId: string; operationId: string; offsetMilliseconds: number }
+export type TimelineEvent = { sequence: number; attemptId: string; stepId: string; kind: string; requestId: string; occurredAtUtc: string }
+export type FindingResponse = {
+  id: string
+  runId: string
+  successMessage: string
+  invariantOutcome: string
+  invariantSummary: string
+  traceReferences: string[]
+  agentInterpretation: string
+  reproductions: { attempt: number; outcome: string; traceReferences: string[] }[]
+  replayArtifact: {
+    id: string
+    fingerprint: string
+    strategy: string
+    seed: number
+    actorCount: number
+    stepCount: number
+    steps: ReplayStep[]
+  }
+  timeline: { actorId: number; events: TimelineEvent[] }[]
+  agentActivity: {
+    iteration: number
+    action: string
+    rationaleSummary: string
+    modelId: string
+    schemaVersion: string
+    modelInvocationId: string
+    occurredAtUtc: string
+  }[]
+  replayAttempts: {
+    id: string
+    targetMode: string
+    outcome: string
+    artifactFingerprint: string
+    idempotencyKey: string
+    completedAtUtc: string
+  }[]
+}
+
+export type ReplayComparisonResponse = {
+  vulnerableOutcome: string
+  fixedOutcome: string
+  artifactFingerprint: string
+  idempotencyKey: string
 }

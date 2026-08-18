@@ -23,7 +23,8 @@ internal static class RunEndpoints
                 run.CreatedAtUtc,
                 run.StartedAtUtc,
                 run.CompletedAtUtc,
-                run.CancellationRequestedAtUtc));
+                run.CancellationRequestedAtUtc,
+                await query.GetFindingIdAsync(id, cancellationToken)));
         });
         endpoints.MapGet("/api/runs/{id:guid}/events", GetEventsAsync);
         endpoints.MapGet("/api/runs/{id:guid}/traces", async (Guid id, long? after, GetRun query, CancellationToken cancellationToken) =>

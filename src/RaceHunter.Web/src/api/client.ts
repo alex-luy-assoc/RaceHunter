@@ -1,4 +1,4 @@
-import type { ApprovalResponse, HuntResponse, PlanResponse, RunEvent, RunResponse } from './contracts'
+import type { ApprovalResponse, FindingResponse, HuntResponse, PlanResponse, ReplayComparisonResponse, RunEvent, RunResponse } from './contracts'
 
 async function requireOk(response: Response) {
   if (!response.ok) throw new Error((await response.json() as { detail?: string }).detail ?? `Request failed (${response.status})`)
@@ -42,4 +42,18 @@ export async function getRun(runId: string): Promise<RunResponse> {
 export async function getRunEvents(runId: string, after: number): Promise<RunEvent[]> {
   const response = await requireOk(await fetch(`/api/runs/${runId}/events?after=${after}`))
   return response.json() as Promise<RunEvent[]>
+}
+
+export async function getFinding(findingId: string): Promise<FindingResponse> {
+  const response = await requireOk(await fetch(`/api/findings/${findingId}`))
+  return response.json() as Promise<FindingResponse>
+}
+
+export async function verifyFix(findingId: string, idempotencyKey: string): Promise<ReplayComparisonResponse> {
+  const response = await requireOk(await fetch(`/api/findings/${findingId}/replays`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idempotencyKey })
+  }))
+  return response.json() as Promise<ReplayComparisonResponse>
 }

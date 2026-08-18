@@ -2,11 +2,11 @@
 
 RaceHunter is an autonomous concurrency-correctness tester for HTTP/JSON APIs. It turns a business rule into a bounded campaign, records causal evidence, and keeps deterministic invariant evaluation outside the model.
 
-## Implemented foundation and deterministic hunt
+## Implemented local golden path
 
-The foundation contains .NET 10 Clean Architecture projects, a React shell served by the API, EF Core/Npgsql migrations, a controlled vulnerable/fixed inventory target, three non-root Docker images, Docker Compose portability, and Terraform for the approved Cloud Run/Pub/Sub/Cloud SQL/Secret Manager architecture.
+The foundation contains .NET 10 Clean Architecture projects, a React application served by the API, EF Core/Npgsql migrations, a controlled vulnerable/fixed inventory target, three non-root Docker images, Docker Compose portability, and Terraform for the approved Cloud Run/Pub/Sub/Cloud SQL/Secret Manager architecture.
 
-The Phase 2 deterministic engine adds actor/request/duration/concurrency budgets; simultaneous-start, seeded-jitter, and controlled-checkpoint schedules; numeric-boundary, uniqueness/cardinality, and cross-observation evaluators; ordered correlated trace evidence; durable cursor-based progress; and cancellation polling below the two-second requirement. Gemini and Pub/Sub orchestration remain Phase 3 work—the private worker currently exposes an explicit manual inventory-hunt endpoint for deterministic local verification.
+The implemented workflow now covers asynchronous Gemini planning through the Pub/Sub boundary, bounded deterministic campaigns, durable progress and recovery, measured three-of-three reproduction, exact-schedule minimization to two actors and the minimum failure-preserving steps, and immutable vulnerable-versus-fixed replay. The Finding page keeps deterministic evidence separate from Gemini interpretation and presents the exact verified message, evidence-filtered actor lanes, Agent Activity, replay identity, and Verify Fix comparison. PostgreSQL remains authoritative across refreshes.
 
 ### Prerequisites
 
@@ -21,11 +21,14 @@ dotnet restore RaceHunter.slnx
 dotnet build RaceHunter.slnx --no-restore
 dotnet test RaceHunter.slnx --no-build
 npm ci --prefix src/RaceHunter.Web
+npm test --prefix src/RaceHunter.Web
 npm run build --prefix src/RaceHunter.Web
+npm ci --prefix tests/RaceHunter.AcceptanceTests
+npm test --prefix tests/RaceHunter.AcceptanceTests
 docker compose config --quiet
 ```
 
-The PostgreSQL integration and reference-target tests use Testcontainers and require Docker.
+The PostgreSQL integration and reference-target tests use Testcontainers and require Docker. The Playwright 1.62.1 suite exercises the New Hunt → Plan Review → Live Campaign → Finding & Replay journey, refresh rehydration, and recoverable Verify Fix failure.
 
 ### Run locally
 
@@ -52,10 +55,12 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/runs/$runId/traces?after=0"
 
 The final response reports deterministic `Fail` evidence when successful orders exceed the configured maximum. `POST /api/runs/{runId}/cancel` persists an idempotent cancellation request; an active manual execution checks durable cancellation every 200 ms and stops new target work.
 
+The full UI journey starts at `http://localhost:8080/hunts/new`. After a verified run, `GET /api/runs/{runId}` exposes its `findingId`; `GET /api/findings/{findingId}` returns the persisted finding projection; and `POST /api/findings/{findingId}/replays` executes the server-owned fixed-target replay with a required idempotency key. The Phase 4 portability gate uses a fresh Compose volume and follows that plan/approve/run/finding/Verify Fix path through the API, worker, reference target, PostgreSQL, and Pub/Sub emulator. The finding and replay subset is documented in `docs/openapi.json`.
+
 The demo reset endpoint is disabled when `DemoControl:Key` is absent. Compose supplies the development-only `X-Demo-Control-Key: local-demo-only`; staging receives a generated key through a least-privilege Secret Manager reference and stores no key value in the repository.
 
 ### Google Cloud
 
 Terraform under `deploy/terraform` preserves the same three-image architecture and provisions Cloud Run, Pub/Sub, Cloud SQL, Secret Manager, IAM, logging/trace APIs, and an optional budget. Do not run `deploy/scripts/deploy.ps1` without explicit approval: it rejects execution unless `-ApproveBillableResources` is supplied.
 
-Terraform and deployed smoke validation were not run during Phase 1 because Terraform is unavailable locally and creating/contacting Google Cloud was outside the approved scope.
+Cloud Run service IAM, API-to-worker identity tokens, OpenTelemetry/Cloud proof, staging rollout, and deployed smoke validation remain Phase 5 work. Creating or contacting billable Google Cloud resources still requires explicit approval.

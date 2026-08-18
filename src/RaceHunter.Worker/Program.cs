@@ -2,6 +2,7 @@ using RaceHunter.Application.Abstractions;
 using RaceHunter.Application.Agents;
 using RaceHunter.Application.Hunts;
 using RaceHunter.Application.Messaging;
+using RaceHunter.Application.Replays;
 using RaceHunter.Concurrency.Execution;
 using RaceHunter.Concurrency.Invariants;
 using RaceHunter.Concurrency.Scheduling;
@@ -61,6 +62,7 @@ else
 builder.Services.AddScoped<IPlanWorkHandler, PlanWorkHandler>();
 builder.Services.AddScoped<ReferenceCampaignAttemptExecutor>();
 builder.Services.AddScoped<ICampaignWorkHandler, CampaignRunner>();
+builder.Services.AddScoped<IReplayExecution, ReferenceReplayExecution>();
 builder.Services.AddScoped<WorkDispatcher>();
 builder.Services.AddHttpClient<ReferenceInventoryTargetClient>((services, client) =>
 {
@@ -74,6 +76,7 @@ var app = builder.Build();
 await app.Services.ApplyRaceHunterMigrationsAsync();
 app.MapHealthChecks("/healthz");
 app.MapPubSubPushEndpoint();
+app.MapReplayEndpoint();
 app.MapPost("/internal/manual-hunts", async (
     ManualInventoryHuntRequest input,
     ManualHuntExecutor executor,

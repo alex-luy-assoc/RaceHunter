@@ -10,6 +10,6 @@ public sealed class SimultaneousStartStrategy : IScheduleStrategy
     internal static IEnumerable<int> ValidateActorCount(int actorCount)
     {
         if (actorCount is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(actorCount));
-        return Enumerable.Range(0, actorCount);
+        return Enumerable.Range(1, actorCount);
     }
 }

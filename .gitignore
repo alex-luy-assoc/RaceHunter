@@ -19,4 +19,6 @@ memory-bank/.uat-credentials/
 .vs/
 .idea/
 TestResults/
+**/test-results/
+**/playwright-report/
 coverage/

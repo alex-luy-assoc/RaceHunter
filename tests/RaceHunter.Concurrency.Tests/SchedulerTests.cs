@@ -47,6 +47,7 @@ public sealed class SchedulerTests
         var plan = new SeededJitterStrategy(TimeSpan.FromMilliseconds(25)).Create(100, 42);
 
         Assert.All(plan.Actors, actor => Assert.InRange(actor.Offset, TimeSpan.Zero, TimeSpan.FromMilliseconds(25)));
+        Assert.All(plan.Actors, actor => Assert.Equal(0, actor.Offset.Ticks % TimeSpan.TicksPerMillisecond));
     }
 
     [Fact]
@@ -54,7 +55,7 @@ public sealed class SchedulerTests
     {
         var strategy = new CheckpointStrategy();
 
-        Assert.Equal([0, 1, 2, 3], strategy.Create(4, 99).Actors.Select(actor => actor.CheckpointOrder));
+        Assert.Equal([1, 2, 3, 4], strategy.Create(4, 99).Actors.Select(actor => actor.CheckpointOrder));
         Assert.Equal(strategy.Create(4, 99).Actors, strategy.Create(4, 99).Actors);
     }
 

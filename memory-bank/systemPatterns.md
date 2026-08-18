@@ -71,6 +71,16 @@ Gemini can select only from an allowlisted action vocabulary. Every iteration re
 
 Planning and strategy adapters count every provider invocation, including constrained repair calls. A zero remaining model budget prevents provider access; invalid or repaired output cannot bypass operation, invariant, strategy, actor, request, timing, iteration, or duration limits.
 
+## Finding, Minimization, and Replay Pattern
+
+- Promote a deterministic reference-target failure to a finding only after three separately executed equivalent schedules all return `Fail`; `Pass` or `Inconclusive` prevents the verified 3/3 claim.
+- Minimize the recorded schedule deterministically: remove actors down to the two-actor floor, then remove steps, and retain a candidate only when exact replay preserves the same failed invariant. Minimization never infers success from timing or model interpretation.
+- Treat the replay artifact as content-addressed evidence. Canonicalize embedded JSON, normalize timestamp precision to the PostgreSQL storage boundary, order steps deterministically, compute a SHA-256 fingerprint, and validate it on every rehydration and before and after execution.
+- Persist the finding, immutable artifact, ordered steps, three reproduction outcomes, and initial vulnerable attempt as one short transaction. Subsequent replay attempts append evidence; they never update the artifact or original finding.
+- Serialize the one allowed fixed-target execution with a durable per-artifact claim. Commit or take over the claim independently, perform worker HTTP outside a database transaction, then persist the winning attempt. Release failed ownership and allow bounded stale-claim recovery.
+- Build the causal timeline only from trace references that support the finding. Preserve run-attempt identity on every event, order by UTC timestamp and durable sequence, group by actor lane, and present Gemini Agent Activity as advisory evidence alongside—not inside—the deterministic proof.
+- Compare vulnerable and fixed outcomes only when both attempts report the stored artifact fingerprint. A Verify Fix transport failure leaves the original finding visible and retryable.
+
 ## Error and Outcome Taxonomy
 
 Classify failures as target, transport, model, persistence, orchestration, cancellation, validation, safety/authorization, or invariant outcome. Invariant evaluation returns pass, fail, or inconclusive; inconclusive is never a defect.

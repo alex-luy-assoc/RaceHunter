@@ -4,7 +4,7 @@ using RaceHunter.Domain.Tracing;
 
 namespace RaceHunter.Application.Runs;
 
-public sealed class GetRun(IRunStore runStore, ITraceStore traceStore)
+public sealed class GetRun(IRunStore runStore, ITraceStore traceStore, IFindingStore findingStore)
 {
     public Task<ExperimentRun?> ExecuteAsync(Guid id, CancellationToken cancellationToken) =>
         runStore.GetAsync(id, cancellationToken);
@@ -14,4 +14,7 @@ public sealed class GetRun(IRunStore runStore, ITraceStore traceStore)
 
     public Task<IReadOnlyList<TraceEvent>> GetTracesAsync(Guid id, long after, CancellationToken cancellationToken) =>
         traceStore.GetAsync(id, Math.Max(0, after), cancellationToken);
+
+    public async Task<Guid?> GetFindingIdAsync(Guid id, CancellationToken cancellationToken) =>
+        await findingStore.GetIdByRunAsync(id, cancellationToken);
 }

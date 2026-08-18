@@ -26,3 +26,7 @@ button { padding: .85rem 1.2rem; border: 0; border-radius: .5rem; color: #071310
 button:disabled { cursor: wait; opacity: .6; }
 button:focus-visible, textarea:focus-visible { outline: 3px solid white; outline-offset: 3px; }
 li { margin: .75rem 0; color: #b3c8c0; }
+.actor-lanes { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.actor-lane { border-left: 3px solid #55e6a5; padding-left: 1rem; }
+.actor-lane span, .comparison span, small { display: block; color: #86a59a; }
+.comparison { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }

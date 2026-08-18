@@ -9,7 +9,7 @@ export type RunProgressLoader = {
 const defaultLoader: RunProgressLoader = { getRun, getEvents: getRunEvents }
 
 export async function loadPersistedRunProgress(runId: string, loader: RunProgressLoader = defaultLoader) {
-  const run = await loader.getRun(runId)
+  await loader.getRun(runId)
   const events: RunEvent[] = []
   let after = 0
   while (true) {
@@ -23,6 +23,7 @@ export async function loadPersistedRunProgress(runId: string, loader: RunProgres
     after = next
   }
   events.sort((left, right) => left.cursor - right.cursor)
+  const run = await loader.getRun(runId)
   return { run, events, after: events.at(-1)?.cursor ?? 0 }
 }
 

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
+import { getRun } from '../api/client'
 import { appendPersistedEvent, loadPersistedRunProgress } from '../api/runProgress'
 import type { RunEvent, RunResponse } from '../api/contracts'
 
-const eventKinds = ['campaign-started', 'agent-decision', 'deterministic-violation-observed', 'campaign-no-finding', 'budget-exhausted', 'model-failed', 'worker-failed', 'work-dead-lettered']
+const eventKinds = ['campaign-started', 'agent-decision', 'deterministic-violation-observed', 'finding-ready', 'reproduction-inconclusive', 'campaign-no-finding', 'budget-exhausted', 'model-failed', 'worker-failed', 'work-dead-lettered']
 
 export function LiveCampaignPage({ runId }: { runId: string }) {
   const cursorKey = `racehunter:run-cursor:${runId}`
@@ -25,6 +26,13 @@ export function LiveCampaignPage({ runId }: { runId: string }) {
           const item = JSON.parse((incoming as MessageEvent<string>).data) as RunEvent
           setEvents(current => appendPersistedEvent(current, item))
           localStorage.setItem(cursorKey, String(item.cursor))
+          if (item.kind === 'finding-ready') {
+            void getRun(runId).then(latest => {
+              if (!disposed) setRun(latest)
+            }).catch(error => {
+              if (!disposed) setLoadError(error instanceof Error ? error.message : 'Verified finding could not be loaded.')
+            })
+          }
         }
         eventKinds.forEach(kind => source?.addEventListener(kind, receive))
       } catch (error) {
@@ -39,6 +47,7 @@ export function LiveCampaignPage({ runId }: { runId: string }) {
     <p className="eyebrow">LIVE CAMPAIGN</p>
     <h1 className="page-title">Bounded agent activity</h1>
     {run && <p>Persisted run status: <strong>{run.status}</strong></p>}
+    {run?.findingId && <a href={`/findings/${run.findingId}`}>Open verified finding</a>}
     {loadError && <p role="alert">{loadError}</p>}
     <section aria-live="polite">
       {!loadError && events.length === 0 && <p>Loading persisted progress…</p>}
