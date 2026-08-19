@@ -89,6 +89,24 @@ $commitSha = git rev-parse HEAD
 
 The project and region in this local record identify a proposed release; they do not authorize cloud access or mutation. Every external stage is default-denied unless supplied a fresh exact-stage approval bound to its release material. The Phase 2 helpers produce explicit image-publication, backend-migration, Terraform-plan, and saved-plan-apply descriptors; they do not execute those actions. Raw release state, `.tfvars.json`, saved plans, generated backend configuration, provider caches, and Terraform state stay outside Git. Only schema-validated, environment-qualified, secret-safe evidence may be promoted later.
 
+After the release-candidate changes have been committed, qualify that exact commit from a clean checkout. `QualifyLocal` checks cleanliness and `HEAD` identity before running the more expensive .NET, web, Playwright, image-build, dependency-audit, secret-scan, Compose, and pinned Terraform gates:
+
+```powershell
+# This command must produce no output before qualification starts.
+git status --porcelain=v1 --untracked-files=all
+
+$commitSha = git rev-parse HEAD
+pwsh -NoLogo -NoProfile -NonInteractive -File .\deploy\scripts\staging-release.ps1 `
+  -Stage QualifyLocal `
+  -ProjectId 'racehunter-staging' `
+  -Region 'us-east1' `
+  -CommitSha $commitSha
+```
+
+`racehunter-staging` and `us-east1` are safe examples, not fixed deployment settings; the operator must supply the intended non-production staging project and region. Qualification runs subprocesses with an isolated minimal environment, stores only `local` or `local-emulated` secret-safe evidence under `memory-bank/.local/staging-release/`, and emits a `Preflight` request bound to the exact commit, project, region, binding hash, qualification hash, allowed read-only checks, and request hash.
+
+**Stop after `QualifyLocal`.** The generated request is not credential-use approval and authorizes no cloud access or mutation. Do not load Google credentials, obtain tokens, invoke `Preflight`, call authenticated Google APIs, publish images, migrate state, plan/apply Terraform, deploy, smoke-test staging, or run the demo until the applicable fresh approval gate is explicitly satisfied. A preflight approval must bind the unchanged generated request, be issued after qualification, and remain within its 15-minute validity window; any drift requires a new clean qualification and request.
+
 Validate Terraform locally without credentials or state:
 
 ```powershell

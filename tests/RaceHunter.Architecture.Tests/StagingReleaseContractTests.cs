@@ -6,9 +6,10 @@ using Xunit;
 namespace RaceHunter.Architecture.Tests;
 
 /// <summary>
-/// Phase 1 strategy: exercise the provider-agnostic approval, binding, state, and
-/// sanitized-evidence boundaries. Google provider behavior, secret values,
-/// destruction, and production rollout are deliberately outside this suite.
+/// Staging release strategy: exercise provider-agnostic approval, binding, local
+/// qualification, state, and sanitized-evidence boundaries. Google provider
+/// behavior, secret values, destruction, and production rollout are deliberately
+/// outside this suite.
 /// </summary>
 public sealed class StagingReleaseContractTests
 {
@@ -292,9 +293,9 @@ public sealed class StagingReleaseContractTests
         var result = RunPowerShell($$"""
             Import-Module '{{Escape(ModulePath)}}' -Force
             $binding = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1'
-            $approval = New-StagingReleaseApproval -Stage 'Preflight' -Binding $binding
+            $approval = New-StagingReleaseApproval -Stage 'Validate' -Binding $binding
             [pscustomobject]@{
-                preflight = Test-StagingReleaseApproval -Stage 'Preflight' -Binding $binding -Approval $approval
+                validate = Test-StagingReleaseApproval -Stage 'Validate' -Binding $binding -Approval $approval
                 foundation = Test-StagingReleaseApproval -Stage 'Foundation' -Binding $binding -Approval $approval
                 deploy = Test-StagingReleaseApproval -Stage 'Deploy' -Binding $binding -Approval $approval
             } | ConvertTo-Json -Compress
@@ -302,7 +303,7 @@ public sealed class StagingReleaseContractTests
 
         Assert.Equal(0, result.ExitCode);
         using var json = JsonDocument.Parse(result.Output);
-        Assert.True(json.RootElement.GetProperty("preflight").GetBoolean());
+        Assert.True(json.RootElement.GetProperty("validate").GetBoolean());
         Assert.False(json.RootElement.GetProperty("foundation").GetBoolean());
         Assert.False(json.RootElement.GetProperty("deploy").GetBoolean());
     }
@@ -313,7 +314,7 @@ public sealed class StagingReleaseContractTests
         var result = RunPowerShell($$"""
             Import-Module '{{Escape(ModulePath)}}' -Force
             $binding = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1'
-            $valid = New-StagingReleaseApproval -Stage 'Preflight' -Binding $binding
+            $valid = New-StagingReleaseApproval -Stage 'Validate' -Binding $binding
             function Copy-Approval { param($value) return ($value | ConvertTo-Json -Compress | ConvertFrom-Json -DateKind String) }
             $stringFalse = Copy-Approval $valid; $stringFalse.valid = 'false'
             $numericTruthy = Copy-Approval $valid; $numericTruthy.valid = 1
@@ -323,10 +324,10 @@ public sealed class StagingReleaseContractTests
             $wrongType = Copy-Approval $valid; $wrongType.projectId = 42
             $rejected = 0
             foreach ($candidate in @($stringFalse, $numericTruthy, $missing, $extra, $malformedTime, $wrongType)) {
-                if (-not (Test-StagingReleaseApproval -Stage 'Preflight' -Binding $binding -Approval $candidate)) { $rejected++ }
+                if (-not (Test-StagingReleaseApproval -Stage 'Validate' -Binding $binding -Approval $candidate)) { $rejected++ }
             }
             [pscustomobject]@{
-                validAccepted = Test-StagingReleaseApproval -Stage 'Preflight' -Binding $binding -Approval $valid
+                validAccepted = Test-StagingReleaseApproval -Stage 'Validate' -Binding $binding -Approval $valid
                 rejected = $rejected
             } | ConvertTo-Json -Compress
             """);
@@ -343,15 +344,15 @@ public sealed class StagingReleaseContractTests
         var result = RunPowerShell($$"""
             Import-Module '{{Escape(ModulePath)}}' -Force
             $binding = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -ImageDigests @{ api = 'registry/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }
-            $approval = New-StagingReleaseApproval -Stage 'Preflight' -Binding $binding
+            $approval = New-StagingReleaseApproval -Stage 'Validate' -Binding $binding
             $differentCommit = New-StagingReleaseBinding -CommitSha '1123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -ImageDigests @{ api = 'registry/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }
             $differentProject = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'other-staging' -Region 'us-east1' -ImageDigests @{ api = 'registry/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }
             $differentRegion = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-central1' -ImageDigests @{ api = 'registry/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }
             [pscustomobject]@{
-                exact = Test-StagingReleaseApproval -Stage 'Preflight' -Binding $binding -Approval $approval
-                commit = Test-StagingReleaseApproval -Stage 'Preflight' -Binding $differentCommit -Approval $approval
-                project = Test-StagingReleaseApproval -Stage 'Preflight' -Binding $differentProject -Approval $approval
-                region = Test-StagingReleaseApproval -Stage 'Preflight' -Binding $differentRegion -Approval $approval
+                exact = Test-StagingReleaseApproval -Stage 'Validate' -Binding $binding -Approval $approval
+                commit = Test-StagingReleaseApproval -Stage 'Validate' -Binding $differentCommit -Approval $approval
+                project = Test-StagingReleaseApproval -Stage 'Validate' -Binding $differentProject -Approval $approval
+                region = Test-StagingReleaseApproval -Stage 'Validate' -Binding $differentRegion -Approval $approval
             } | ConvertTo-Json -Compress
             """);
 
@@ -535,9 +536,21 @@ public sealed class StagingReleaseContractTests
             $foundation = [ordered]@{ scopedApis = @('aiplatform.googleapis.com', 'artifactregistry.googleapis.com', 'billingbudgets.googleapis.com', 'cloudresourcemanager.googleapis.com', 'cloudtrace.googleapis.com', 'iam.googleapis.com', 'iamcredentials.googleapis.com', 'logging.googleapis.com', 'monitoring.googleapis.com', 'pubsub.googleapis.com', 'run.googleapis.com', 'secretmanager.googleapis.com', 'serviceusage.googleapis.com', 'sqladmin.googleapis.com', 'storage.googleapis.com'); billingAccountId = 'ABCDEF-123456-ABCDEF'; stateBucketName = 'racehunter-staging-tfstate'; stateBucketPublicAccessPrevention = $true; stateBucketUniformAccess = $true; stateBucketVersioning = $true; stateBucketRetentionDays = 30; artifactRegistryRepository = 'racehunter'; artifactRegistryLocation = 'us-east1'; artifactRegistryImmutableTags = $true; apiMaxInstances = 2; workerMaxInstances = 1; referenceTargetMaxInstances = 1; monthlyBudgetAmount = 25; budgetCurrency = 'USD'; deletionProtection = $true }
             $inputs = [ordered]@{ billing_account_id = 'ABCDEF-123456-ABCDEF'; monthly_budget_usd = 25; api_max_instance_count = 2; worker_max_instance_count = 1; reference_target_max_instance_count = 1; deletion_protection = $true; manual_target_secret_ids = @() }
             $old = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests $images -TerraformInputs $inputs -SavedPlanPath '{{Escape(planPath)}}'
-            $state = Initialize-StagingReleaseState -Path '{{Escape(statePath)}}' -Binding $old
+            $runner = {
+                param($gate)
+                $output = if ($gate.name -eq 'release-candidate-commit') { $old.commitSha } else { '' }
+                $exitCode = if ($gate.name -eq 'repository-secret-scan') { 1 } else { 0 }
+                return [pscustomobject]@{ exitCode = $exitCode; standardOutput = $output }
+            }
+            $qualification = Invoke-StagingLocalQualification -RepositoryRoot '{{Escape(Root)}}' -Binding $old -CommandRunner $runner -ObservedAtUtc '2026-08-19T18:30:00Z'
+            $state = Save-StagingLocalQualification -Path '{{Escape(statePath)}}' -Binding $old -Qualification $qualification
+            $qualificationEvidenceCount = @($state.evidence).Count
             foreach ($stage in @('Preflight', 'Foundation', 'Deploy')) {
-                $approval = New-StagingReleaseApproval -Stage $stage -Binding $old
+                $approval = if ($stage -eq 'Preflight') {
+                    New-StagingReleaseApproval -Stage $stage -Binding $old -PreflightRequest $state.preflightRequest
+                } else {
+                    New-StagingReleaseApproval -Stage $stage -Binding $old
+                }
                 Add-StagingReleaseApproval -Path '{{Escape(statePath)}}' -Approval $approval | Out-Null
             }
             Add-StagingReleaseEvidence -Path '{{Escape(statePath)}}' -Evidence @{ id = 'preflight-1'; classification = 'cloud-read-only' } | Out-Null
@@ -551,18 +564,19 @@ public sealed class StagingReleaseContractTests
                 preflightValid = [bool]$resumed.approvals.Preflight.valid
                 foundationValid = [bool]$resumed.approvals.Foundation.valid
                 deployValid = [bool]$resumed.approvals.Deploy.valid
+                qualificationEvidenceCount = $qualificationEvidenceCount
                 evidenceCount = @($resumed.evidence).Count
                 reason = $resumed.approvals.Deploy.invalidationReason
                 resumeRejected = $resumeRejected
             } | ConvertTo-Json -Compress
             """);
 
-        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.ExitCode == 0, result.Error);
         using var json = JsonDocument.Parse(result.Output);
         Assert.True(json.RootElement.GetProperty("preflightValid").GetBoolean());
         Assert.False(json.RootElement.GetProperty("foundationValid").GetBoolean());
         Assert.False(json.RootElement.GetProperty("deployValid").GetBoolean());
-        Assert.Equal(1, json.RootElement.GetProperty("evidenceCount").GetInt32());
+        Assert.Equal(json.RootElement.GetProperty("qualificationEvidenceCount").GetInt32() + 1, json.RootElement.GetProperty("evidenceCount").GetInt32());
         Assert.Contains("binding drift", json.RootElement.GetProperty("reason").GetString(), StringComparison.OrdinalIgnoreCase);
         Assert.True(json.RootElement.GetProperty("resumeRejected").GetBoolean());
     }
@@ -711,6 +725,318 @@ public sealed class StagingReleaseContractTests
         Assert.Equal(0, result.ExitCode);
         using var json = JsonDocument.Parse(result.Output);
         Assert.Equal(json.RootElement.GetProperty("total").GetInt32(), json.RootElement.GetProperty("rejected").GetInt32());
+    }
+
+    [Fact]
+    public void Local_qualification_orchestrates_every_repository_gate_in_a_deterministic_order()
+    {
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            $commit = '0123456789abcdef0123456789abcdef01234567'
+            $binding = New-StagingReleaseBinding -CommitSha $commit -ProjectId 'racehunter-staging' -Region 'us-east1'
+            $invocations = [Collections.Generic.List[string]]::new()
+            $runner = {
+                param($gate)
+                $invocations.Add([string]$gate.name)
+                $output = if ($gate.name -eq 'release-candidate-commit') { $commit } else { '' }
+                $exitCode = if ($gate.name -eq 'repository-secret-scan') { 1 } else { 0 }
+                return [pscustomobject]@{ exitCode = $exitCode; standardOutput = $output }
+            }
+            $qualification = Invoke-StagingLocalQualification -RepositoryRoot '{{Escape(Root)}}' -Binding $binding -CommandRunner $runner -ObservedAtUtc '2026-08-19T18:30:00Z'
+            [pscustomobject]@{
+                names = @($invocations)
+                passed = [bool]$qualification.passed
+                resultCount = @($qualification.gates).Count
+                requestStage = $qualification.preflightRequest.stage
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        var names = json.RootElement.GetProperty("names").EnumerateArray().Select(item => item.GetString()).ToArray();
+        Assert.Equal(new[]
+        {
+            "clean-checkout", "release-candidate-commit", "dotnet-restore", "dotnet-tests", "web-install", "web-tests", "web-lint", "web-build",
+            "acceptance-install", "fresh-volume-real-playwright", "api-image-build", "worker-image-build", "reference-target-image-build", "compose-config",
+            "nuget-dependency-audit", "web-dependency-audit", "acceptance-dependency-audit", "repository-secret-scan", "terraform-format",
+            "terraform-bootstrap-init", "terraform-bootstrap-validate", "terraform-application-init", "terraform-application-validate"
+        }, names);
+        Assert.True(json.RootElement.GetProperty("passed").GetBoolean());
+        Assert.Equal(names.Length, json.RootElement.GetProperty("resultCount").GetInt32());
+        Assert.Equal("Preflight", json.RootElement.GetProperty("requestStage").GetString());
+    }
+
+    [Fact]
+    public void Local_qualification_records_only_local_evidence_and_resumes_without_duplicate_promotion()
+    {
+        using var temporary = new TemporaryDirectory();
+        var statePath = Path.Combine(temporary.Path, "release-state.json");
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            $commit = '0123456789abcdef0123456789abcdef01234567'
+            $binding = New-StagingReleaseBinding -CommitSha $commit -ProjectId 'racehunter-staging' -Region 'us-east1'
+            $runner = {
+                param($gate)
+                $output = if ($gate.name -eq 'release-candidate-commit') { $commit } else { '' }
+                $exitCode = if ($gate.name -eq 'repository-secret-scan') { 1 } else { 0 }
+                return [pscustomobject]@{ exitCode = $exitCode; standardOutput = $output }
+            }
+            $qualification = Invoke-StagingLocalQualification -RepositoryRoot '{{Escape(Root)}}' -Binding $binding -CommandRunner $runner -ObservedAtUtc '2026-08-19T18:30:00Z'
+            Save-StagingLocalQualification -Path '{{Escape(statePath)}}' -Binding $binding -Qualification $qualification | Out-Null
+            $resumed = Save-StagingLocalQualification -Path '{{Escape(statePath)}}' -Binding $binding -Qualification $qualification
+            [pscustomobject]@{
+                classifications = @($resumed.evidence | ForEach-Object { $_.classification } | Sort-Object -Unique)
+                evidenceCount = @($resumed.evidence).Count
+                gateCount = @($qualification.gates).Count
+                currentStage = $resumed.currentStage
+                transitionCount = @($resumed.transitions).Count
+                requestHash = $resumed.preflightRequest.qualificationHash
+                qualificationHash = $resumed.localQualification.qualificationHash
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        var classifications = json.RootElement.GetProperty("classifications").EnumerateArray().Select(item => item.GetString()).ToArray();
+        Assert.Equal(new[] { "local", "local-emulated" }, classifications);
+        Assert.Equal(json.RootElement.GetProperty("gateCount").GetInt32(), json.RootElement.GetProperty("evidenceCount").GetInt32());
+        Assert.Equal("LocalQualified", json.RootElement.GetProperty("currentStage").GetString());
+        Assert.Equal(2, json.RootElement.GetProperty("transitionCount").GetInt32());
+        Assert.Equal(json.RootElement.GetProperty("qualificationHash").GetString(), json.RootElement.GetProperty("requestHash").GetString());
+    }
+
+    [Fact]
+    public void Local_qualification_rejects_a_dirty_checkout_or_commit_mismatch_before_expensive_gates()
+    {
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            $commit = '0123456789abcdef0123456789abcdef01234567'
+            $binding = New-StagingReleaseBinding -CommitSha $commit -ProjectId 'racehunter-staging' -Region 'us-east1'
+            $dirtyCalls = [Collections.Generic.List[string]]::new()
+            $dirtyRunner = {
+                param($gate)
+                $dirtyCalls.Add([string]$gate.name)
+                return [pscustomobject]@{ exitCode = 0; standardOutput = ' M tracked-file.txt' }
+            }
+            $dirtyRejected = $false
+            try { Invoke-StagingLocalQualification -RepositoryRoot '{{Escape(Root)}}' -Binding $binding -CommandRunner $dirtyRunner -ErrorAction Stop | Out-Null } catch { $dirtyRejected = $true }
+
+            $driftCalls = [Collections.Generic.List[string]]::new()
+            $driftRunner = {
+                param($gate)
+                $driftCalls.Add([string]$gate.name)
+                $output = if ($gate.name -eq 'release-candidate-commit') { '1123456789abcdef0123456789abcdef01234567' } else { '' }
+                return [pscustomobject]@{ exitCode = 0; standardOutput = $output }
+            }
+            $driftRejected = $false
+            try { Invoke-StagingLocalQualification -RepositoryRoot '{{Escape(Root)}}' -Binding $binding -CommandRunner $driftRunner -ErrorAction Stop | Out-Null } catch { $driftRejected = $true }
+            [pscustomobject]@{
+                dirtyRejected = $dirtyRejected
+                dirtyCalls = @($dirtyCalls)
+                driftRejected = $driftRejected
+                driftCalls = @($driftCalls)
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.True(json.RootElement.GetProperty("dirtyRejected").GetBoolean());
+        Assert.Equal(new[] { "clean-checkout" }, json.RootElement.GetProperty("dirtyCalls").EnumerateArray().Select(item => item.GetString()).ToArray());
+        Assert.True(json.RootElement.GetProperty("driftRejected").GetBoolean());
+        Assert.Equal(new[] { "clean-checkout", "release-candidate-commit" }, json.RootElement.GetProperty("driftCalls").EnumerateArray().Select(item => item.GetString()).ToArray());
+    }
+
+    [Fact]
+    public void Qualification_is_credential_free_and_preflight_request_is_exact_default_deny_and_drift_sensitive()
+    {
+        var entryPoint = File.ReadAllText(Path.Combine(Root, "deploy", "scripts", "staging-release.ps1"));
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            $commit = '0123456789abcdef0123456789abcdef01234567'
+            $binding = New-StagingReleaseBinding -CommitSha $commit -ProjectId 'racehunter-staging' -Region 'us-east1'
+            $unsafeCommandObserved = $false
+            $runner = {
+                param($gate)
+                $rendered = "$($gate.filePath) $($gate.argumentList -join ' ')"
+                if ($rendered -match '(?i)gcloud|auth\s|access-token|google_application_credentials') { $unsafeCommandObserved = $true }
+                $output = if ($gate.name -eq 'release-candidate-commit') { $commit } else { '' }
+                $exitCode = if ($gate.name -eq 'repository-secret-scan') { 1 } else { 0 }
+                return [pscustomobject]@{ exitCode = $exitCode; standardOutput = $output }
+            }
+            $qualification = Invoke-StagingLocalQualification -RepositoryRoot '{{Escape(Root)}}' -Binding $binding -CommandRunner $runner -ObservedAtUtc '2026-08-19T18:30:00Z'
+            $request = $qualification.preflightRequest
+            $drifted = New-StagingReleaseBinding -CommitSha '1123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1'
+            [pscustomobject]@{
+                unsafeCommandObserved = $unsafeCommandObserved
+                exact = Test-StagingPreflightRequest -Request $request -Binding $binding -Qualification $qualification
+                drifted = Test-StagingPreflightRequest -Request $request -Binding $drifted -Qualification $qualification
+                stage = $request.stage
+                commitSha = $request.commitSha
+                projectId = $request.projectId
+                region = $request.region
+                approvalRequired = [bool]$request.approvalRequired
+                authorizesMutation = [bool]$request.authorizesMutation
+                allowedChecks = @($request.allowedChecks)
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.False(json.RootElement.GetProperty("unsafeCommandObserved").GetBoolean());
+        Assert.True(json.RootElement.GetProperty("exact").GetBoolean());
+        Assert.False(json.RootElement.GetProperty("drifted").GetBoolean());
+        Assert.Equal("Preflight", json.RootElement.GetProperty("stage").GetString());
+        Assert.Equal("0123456789abcdef0123456789abcdef01234567", json.RootElement.GetProperty("commitSha").GetString());
+        Assert.Equal("racehunter-staging", json.RootElement.GetProperty("projectId").GetString());
+        Assert.Equal("us-east1", json.RootElement.GetProperty("region").GetString());
+        Assert.True(json.RootElement.GetProperty("approvalRequired").GetBoolean());
+        Assert.False(json.RootElement.GetProperty("authorizesMutation").GetBoolean());
+        Assert.Equal(new[] { "active-principal", "project", "billing-link", "quotas", "permissions", "region-availability", "existing-resources" },
+            json.RootElement.GetProperty("allowedChecks").EnumerateArray().Select(item => item.GetString()).ToArray());
+        Assert.Contains("QualifyLocal", entryPoint, StringComparison.Ordinal);
+        Assert.Contains("Assert-StagingPreflightRequest", entryPoint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Preflight_approval_rejects_prequalification_expired_future_and_mismatched_requests()
+    {
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            $commit = '0123456789abcdef0123456789abcdef01234567'
+            $binding = New-StagingReleaseBinding -CommitSha $commit -ProjectId 'racehunter-staging' -Region 'us-east1'
+            $runner = {
+                param($gate)
+                $output = if ($gate.name -eq 'release-candidate-commit') { $commit } else { '' }
+                $exitCode = if ($gate.name -eq 'repository-secret-scan') { 1 } else { 0 }
+                return [pscustomobject]@{ exitCode = $exitCode; standardOutput = $output }
+            }
+            $qualification = Invoke-StagingLocalQualification -RepositoryRoot '{{Escape(Root)}}' -Binding $binding -CommandRunner $runner -ObservedAtUtc '2026-08-19T18:30:00Z'
+            $request = $qualification.preflightRequest
+            $valid = New-StagingReleaseApproval -Stage Preflight -Binding $binding -PreflightRequest $request -ApprovedAtUtc '2026-08-19T18:31:00Z'
+            function Copy-Value { param($value) return ($value | ConvertTo-Json -Compress -Depth 100 | ConvertFrom-Json -Depth 100 -DateKind String) }
+            $preQualification = Copy-Value $valid; $preQualification.approvedAtUtc = '2026-08-19T18:29:59Z'
+            $expired = Copy-Value $valid
+            $future = Copy-Value $valid; $future.approvedAtUtc = '2026-08-19T18:38:01Z'
+            $mismatchedRequest = Copy-Value $request; $mismatchedRequest.allowedChecks = @('active-principal')
+            [pscustomobject]@{
+                valid = Test-StagingReleaseApproval -Stage Preflight -Binding $binding -Approval $valid -PreflightRequest $request -Qualification $qualification -CurrentTimeUtc '2026-08-19T18:35:00Z'
+                preQualification = Test-StagingReleaseApproval -Stage Preflight -Binding $binding -Approval $preQualification -PreflightRequest $request -Qualification $qualification -CurrentTimeUtc '2026-08-19T18:35:00Z'
+                expired = Test-StagingReleaseApproval -Stage Preflight -Binding $binding -Approval $expired -PreflightRequest $request -Qualification $qualification -CurrentTimeUtc '2026-08-19T18:47:01Z'
+                future = Test-StagingReleaseApproval -Stage Preflight -Binding $binding -Approval $future -PreflightRequest $request -Qualification $qualification -CurrentTimeUtc '2026-08-19T18:35:00Z'
+                mismatchedRequest = Test-StagingReleaseApproval -Stage Preflight -Binding $binding -Approval $valid -PreflightRequest $mismatchedRequest -Qualification $qualification -CurrentTimeUtc '2026-08-19T18:35:00Z'
+                qualificationHash = $valid.qualificationHash
+                requestHash = $valid.preflightRequestHash
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.True(result.ExitCode == 0, result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.True(json.RootElement.GetProperty("valid").GetBoolean());
+        Assert.False(json.RootElement.GetProperty("preQualification").GetBoolean());
+        Assert.False(json.RootElement.GetProperty("expired").GetBoolean());
+        Assert.False(json.RootElement.GetProperty("future").GetBoolean());
+        Assert.False(json.RootElement.GetProperty("mismatchedRequest").GetBoolean());
+        Assert.Matches("^[a-f0-9]{64}$", json.RootElement.GetProperty("qualificationHash").GetString()!);
+        Assert.Matches("^[a-f0-9]{64}$", json.RootElement.GetProperty("requestHash").GetString()!);
+    }
+
+    [Fact]
+    public void Preflight_approval_creation_rejects_tampered_request_content_with_a_stale_hash()
+    {
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            $commit = '0123456789abcdef0123456789abcdef01234567'
+            $binding = New-StagingReleaseBinding -CommitSha $commit -ProjectId 'racehunter-staging' -Region 'us-east1'
+            $runner = {
+                param($gate)
+                $output = if ($gate.name -eq 'release-candidate-commit') { $commit } else { '' }
+                $exitCode = if ($gate.name -eq 'repository-secret-scan') { 1 } else { 0 }
+                return [pscustomobject]@{ exitCode = $exitCode; standardOutput = $output }
+            }
+            $qualification = Invoke-StagingLocalQualification -RepositoryRoot '{{Escape(Root)}}' -Binding $binding -CommandRunner $runner -ObservedAtUtc '2026-08-19T18:30:00Z'
+            $request = $qualification.preflightRequest
+            $tampered = $request | ConvertTo-Json -Compress -Depth 100 | ConvertFrom-Json -Depth 100 -DateKind String
+            $tampered.allowedChecks = @('active-principal')
+            $tamperedRejected = $false
+            try { New-StagingReleaseApproval -Stage Preflight -Binding $binding -PreflightRequest $tampered -ApprovedAtUtc '2026-08-19T18:31:00Z' -ErrorAction Stop | Out-Null }
+            catch { $tamperedRejected = $true }
+            $validAccepted = $true
+            try { New-StagingReleaseApproval -Stage Preflight -Binding $binding -PreflightRequest $request -ApprovedAtUtc '2026-08-19T18:31:00Z' -ErrorAction Stop | Out-Null }
+            catch { $validAccepted = $false }
+            [pscustomobject]@{ tamperedRejected = $tamperedRejected; validAccepted = $validAccepted } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.True(json.RootElement.GetProperty("tamperedRejected").GetBoolean());
+        Assert.True(json.RootElement.GetProperty("validAccepted").GetBoolean());
+    }
+
+    [Fact]
+    public void Real_local_process_runner_hides_google_credentials_and_uses_isolated_discovery_roots()
+    {
+        using var temporary = new TemporaryDirectory();
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            $credentialNames = @(
+                'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_API_KEY', 'GOOGLE_AUTH_TOKEN', 'GOOGLE_OAUTH_ACCESS_TOKEN',
+                'GOOGLE_GHA_CREDS_PATH', 'CLOUDSDK_AUTH_ACCESS_TOKEN', 'CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE', 'CLOUDSDK_CORE_ACCOUNT'
+            )
+            foreach ($name in $credentialNames) { [Environment]::SetEnvironmentVariable($name, 'sentinel-not-a-credential') }
+            $env:CLOUDSDK_CONFIG = 'sentinel-cloud-sdk-config'
+            $env:HOME = 'sentinel-home'
+            $env:USERPROFILE = 'sentinel-user-profile'
+            $sentinel = @'
+            $credentialNames = @('GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_API_KEY', 'GOOGLE_AUTH_TOKEN', 'GOOGLE_OAUTH_ACCESS_TOKEN', 'GOOGLE_GHA_CREDS_PATH', 'CLOUDSDK_AUTH_ACCESS_TOKEN', 'CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE', 'CLOUDSDK_CORE_ACCOUNT')
+            [pscustomobject]@{
+                leakedNames = @($credentialNames | Where-Object { -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+                cloudSdkIsolated = -not [string]::IsNullOrWhiteSpace($env:CLOUDSDK_CONFIG) -and $env:CLOUDSDK_CONFIG -ne 'sentinel-cloud-sdk-config'
+                homeIsolated = $env:HOME -ne 'sentinel-home' -and $env:USERPROFILE -ne 'sentinel-user-profile'
+            } | ConvertTo-Json -Compress
+            '@
+            $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($sentinel))
+            $gate = [pscustomobject]@{
+                name = 'credential-environment-sentinel'
+                filePath = 'pwsh'
+                argumentList = @('-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded)
+                workingDirectory = '{{Escape(temporary.Path)}}'
+            }
+            $outcome = Invoke-StagingLocalQualificationCommand -Gate $gate
+            [pscustomobject]@{ exitCode = $outcome.exitCode; child = ($outcome.standardOutput | ConvertFrom-Json) } | ConvertTo-Json -Compress -Depth 10
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Equal(0, json.RootElement.GetProperty("exitCode").GetInt32());
+        Assert.Empty(json.RootElement.GetProperty("child").GetProperty("leakedNames").EnumerateArray());
+        Assert.True(json.RootElement.GetProperty("child").GetProperty("cloudSdkIsolated").GetBoolean());
+        Assert.True(json.RootElement.GetProperty("child").GetProperty("homeIsolated").GetBoolean());
+    }
+
+    [Fact]
+    public void Real_local_process_runner_resolves_windows_command_shims_before_launch()
+    {
+        using var temporary = new TemporaryDirectory();
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            $command = if ($IsWindows) { 'npm.cmd' } else { 'npm' }
+            $gate = [pscustomobject]@{
+                name = 'npm-runtime-sentinel'
+                filePath = $command
+                argumentList = @('--version')
+                workingDirectory = '{{Escape(temporary.Path)}}'
+            }
+            $outcome = Invoke-StagingLocalQualificationCommand -Gate $gate
+            [pscustomobject]@{
+                exitCode = $outcome.exitCode
+                versionFormat = [string]$outcome.standardOutput -match '^\s*\d+\.\d+\.\d+\s*$'
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Equal(0, json.RootElement.GetProperty("exitCode").GetInt32());
+        Assert.True(json.RootElement.GetProperty("versionFormat").GetBoolean());
     }
 
     private static PowerShellResult RunPowerShell(string command)

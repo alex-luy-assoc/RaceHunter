@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('Initialize', 'Status', 'RecordFailure', 'Reconcile', 'Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo')]
+    [ValidateSet('Initialize', 'Status', 'RecordFailure', 'Reconcile', 'QualifyLocal', 'Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo')]
     [string] $Stage,
     [Parameter(Mandatory)] [string] $ProjectId,
     [Parameter(Mandatory)] [string] $Region,
@@ -85,6 +85,18 @@ if ($Stage -eq 'Reconcile') {
     return
 }
 
+if ($Stage -eq 'QualifyLocal') {
+    $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+    $qualification = Invoke-StagingLocalQualification -RepositoryRoot $repositoryRoot -Binding $binding
+    $state = Save-StagingLocalQualification -Path $StatePath -Binding $binding -Qualification $qualification
+    [pscustomobject][ordered]@{
+        currentStage = $state.currentStage
+        qualificationHash = $state.localQualification.qualificationHash
+        preflightRequest = $state.preflightRequest
+    }
+    return
+}
+
 $approval = $null
 if (-not [string]::IsNullOrWhiteSpace($ApprovalPath)) {
     if (-not (Test-Path -LiteralPath $ApprovalPath -PathType Leaf)) {
@@ -93,5 +105,15 @@ if (-not [string]::IsNullOrWhiteSpace($ApprovalPath)) {
     $approval = Get-Content -Raw -LiteralPath $ApprovalPath | ConvertFrom-Json -Depth 100
 }
 
-Assert-StagingReleaseApproval -Stage $Stage -Binding $binding -Approval $approval
-throw "Stage '$Stage' passed its exact approval contract, but external stage execution is intentionally unavailable in Phase 1."
+if ($Stage -eq 'Preflight') {
+    if ($null -eq $approval) {
+        Assert-StagingReleaseApproval -Stage $Stage -Binding $binding -Approval $approval
+    }
+    $state = Get-StagingReleaseState -Path $StatePath
+    Assert-StagingPreflightRequest -Request $state.preflightRequest -Binding $binding -Qualification $state.localQualification
+    Assert-StagingReleaseApproval -Stage $Stage -Binding $binding -Approval $approval -PreflightRequest $state.preflightRequest -Qualification $state.localQualification
+}
+else {
+    Assert-StagingReleaseApproval -Stage $Stage -Binding $binding -Approval $approval
+}
+throw "Stage '$Stage' passed its exact approval contract, but external stage execution remains unavailable before its implementation phase."

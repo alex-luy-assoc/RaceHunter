@@ -220,7 +220,13 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
   **Build/Lint**: .NET and web builds PASS; web lint, `git diff --check`, and pinned Terraform 1.14.4 formatting/init-without-backend/validation PASS for both roots.
   **Code Review**: APPROVED after two RED→GREEN remediation loops; code security PASS; provider locks reviewed locally with no application dependency change.
   **Evidence Boundary**: Contract-validated local implementation only. No Google credential use, authenticated API call, billable mutation, image publication, state migration, Terraform plan/apply, deployment, staging smoke, demo, cleanup, or destruction occurred.
-- [ ] Phase 3: Qualify the immutable release candidate locally and stop at the credential-use gate with a complete preflight request.
+- [x] Phase 3: Qualify the immutable release candidate locally and stop at the credential-use gate with a complete preflight request. ✓
+
+  **Completed**: 2026-08-19
+  **Test Results**: 8/8 focused Phase 3 contracts, 46/46 architecture tests, and 261/261 full-suite tests passing across 11 suites.
+  **Build/Lint**: .NET and web builds PASS; web lint and `git diff --check` PASS.
+  **Code Review**: APPROVED after two review-remediation loops and one post-commit qualification-regression loop; code security PASS; 230 resolved dependency/version pairs audited with no vulnerable packages or upgrades required.
+  **Evidence Boundary**: The immutable candidate can now be qualified locally from a clean committed checkout and emits an exact, default-deny Preflight request. No Google credential use, authenticated API call, billable mutation, image publication, state migration, Terraform plan/apply, deployment, staging smoke, demo, cleanup, or destruction occurred.
 - [ ] Phase 4: After fresh credential, billable-resource, and deployment approvals, prepare and deploy staging and prove live Gemini plus Google Cloud integrations.
 - [ ] Phase 5: Run the golden-path smoke, record a separate unedited sub-four-minute demo, reconcile environment-qualified evidence, and complete the submission checklist.
 
@@ -236,23 +242,37 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 ## Execution State
 
 **Build Status**: IDLE
-**Current Build**: Phase 2: Separate and harden foundation, protected Terraform state, immutable image publication, deployment planning, and IAM/topology validation (deploy-racehunter-staging-and-complete-submission)
-**Build Started**: 2026-08-19T16:44:59Z
-**Last Completed**: Phase 2: Separate and harden foundation, protected Terraform state, immutable image publication, deployment planning, and IAM/topology validation
-**Phase Number**: 2 of 5
+**Current Build**: Phase 3: Qualify the immutable release candidate locally and stop at the credential-use gate with a complete preflight request (deploy-racehunter-staging-and-complete-submission)
+**Build Started**: 2026-08-19T18:01:49Z
+**Last Completed**: Phase 3: Qualify the immutable release candidate locally and stop at the credential-use gate with a complete preflight request
+**Phase Number**: 3 of 5
 **Is Multi-Phase**: YES
 **Can Resume**: NO
 **PLAN BACKEND**: anthropic — configured
 **BRAINSTORM CRITIQUE**: skipped — codex unavailable (unresolved:no-companion, glob=∅; `C:\Users\alexa\.claude\plugins` absent)
+**TDD BACKEND**: anthropic — configured
+**CODE REVIEW BACKEND**: anthropic — codex unavailable (`unresolved:no-companion`; `C:\Users\alexa\.claude\plugins` absent); auto fallback
 
 ### Current Build Step
 **Step**: Step 11 - Phase Git Completion
 **Status**: COMPLETE
-**Started**: 2026-08-19T17:43:08Z
-**Completed**: 2026-08-19T17:43:08Z
-**Output**: Phase 2 artifacts and durable state prepared for feature-branch commit-guard validation and push.
+**Started**: 2026-08-19T18:48:17Z
+**Completed**: 2026-08-19T18:58:01Z
+**Output**: Phase 3 artifacts and durable state prepared after the Windows command-shim qualification regression was fixed and reverified.
 
 ### Completed Steps
+- Step 0.5 Git Setup: COMPLETE (2026-08-19T18:01:49Z) - Existing clean worktree verified on the feature branch.
+- Step 0.6 Phase Gate: COMPLETE (2026-08-19T18:01:49Z) - Taxonomy clean, five-phase roadmap populated, and all creative references verified.
+- Step 1 Read Task Context: COMPLETE (2026-08-19T18:01:49Z) - Phase 3 of 5 selected.
+- Step 2 Load Complexity Context: COMPLETE (2026-08-19T18:01:49Z) - Level 4 rules and the credential-use stop boundary loaded.
+- Step 3 TDD Agent: COMPLETE (2026-08-19T18:56:00Z) - 8 focused contracts delivered RED→GREEN across the initial build, two review-remediation loops, and one qualification-regression loop.
+- Step 5 Create Test Batches: COMPLETE (2026-08-19T18:38:00Z) - One local-qualification/credential-boundary batch and one sequential execution group.
+- Step 6 Execute Test Batches: COMPLETE (2026-08-19T18:56:00Z) - 8/8 focused Phase 3 tests passing after four batch iterations; no batch-worker fixes required.
+- Step 7 Integration Verification: COMPLETE (2026-08-19T18:57:00Z) - 261/261 tests passing across 11 suites; .NET/web builds, web lint, and diff check PASS.
+- Step 8 Code Reviewer: COMPLETE (2026-08-19T18:58:00Z) - APPROVED after the post-qualification regression review; security PASS; no dependency upgrades.
+- Step 9 Documentation Agent: COMPLETE (2026-08-19T18:46:00Z) - README, techContext, and systemPatterns updated; C4 not configured.
+- Step 10 Update Memory Bank: COMPLETE (2026-08-19T18:47:23Z) - Phase 3 checkbox and durable execution state updated.
+- Step 11 Phase Git Completion: COMPLETE (2026-08-19T18:58:01Z) - Phase 3 artifacts and durable state prepared after the Windows command-shim qualification regression was fixed and reverified.
 - Step 0.5 Git Setup: COMPLETE (2026-08-19T16:44:59Z) - Existing clean worktree verified on the feature branch.
 - Step 0.6 Phase Gate: COMPLETE (2026-08-19T16:44:59Z) - Taxonomy clean, five-phase roadmap populated, and all creative references verified.
 - Step 1 Read Task Context: COMPLETE (2026-08-19T16:44:59Z) - Phase 2 of 5 selected.
@@ -286,6 +306,11 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 - BRAINSTORM CRITIQUE: skipped — codex unavailable (unresolved:no-companion, glob=∅; `C:\Users\alexa\.claude\plugins` absent).
 
 ### Sub-Agents
+- TDD Agent (Phase 3): COMPLETE (2026-08-19T18:56:00Z) - 8 focused contracts; credential-free local qualification, isolated child environment, exact fresh Preflight binding, and Windows command-shim execution delivered RED→GREEN.
+- Batch Test Agent (Phase 3): COMPLETE (2026-08-19T18:56:00Z) - 8/8 focused tests PASS over four iterations; no batch-worker fixes required.
+- Build Verifier Agent (Phase 3): COMPLETE (2026-08-19T18:57:00Z) - 261/261 tests; .NET/web builds, web lint, and diff check PASS.
+- Code Reviewer Agent (Phase 3): COMPLETE (2026-08-19T18:58:00Z) - APPROVED after final qualification-regression review; security PASS; no blocking findings or dependency upgrades.
+- Documentation Agent (Phase 3): COMPLETE (2026-08-19T18:46:00Z) - README, techContext, and systemPatterns updated; no product/API/observability/C4 update required.
 - TDD Agent (Phase 2): COMPLETE (2026-08-19T17:30:00Z) - 12 focused contracts; protected bootstrap, exact plan binding, mandatory budget controls, database isolation, and IAM/topology implementation delivered RED→GREEN.
 - Batch Test Agent (Phase 2): COMPLETE (2026-08-19T17:34:00Z) - 38/38 architecture tests and 6/6 Terraform module checks PASS; no fixes required.
 - Build Verifier Agent (Phase 2): COMPLETE (2026-08-19T17:36:00Z) - 245/245 .NET and 8/8 web tests; builds, lint, and Terraform checks PASS.
@@ -303,8 +328,8 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 
 ### Resumption Notes
 **Can Resume**: NO
-**Resume From**: Phase 3 via `/ala:build deploy-racehunter-staging-and-complete-submission`
-**Notes**: Phase 2 is complete. Phase 3 is the next unchecked phase. Google credential use, authenticated cloud APIs, billable mutation, image publication, state migration, Terraform plan/apply, deployment, staging smoke, demo, cleanup, and destruction remain unauthorized.
+**Resume From**: Phase 4 via `/ala:build deploy-racehunter-staging-and-complete-submission`
+**Notes**: Phase 3 is complete after the candidate commit is locally qualified and its exact default-deny Preflight request is preserved in gitignored release state. Phase 4 requires fresh explicit credential, billable-resource, and deployment approvals at their exact gates. Google credential use, authenticated cloud APIs, billable mutation, image publication, state migration, Terraform plan/apply, deployment, staging smoke, demo, cleanup, and destruction remain unauthorized until those independent approvals are obtained.
 
 ## Plan Critique
 

@@ -3,7 +3,7 @@
 ## Guiding Principles
 
 1. **Evidence before explanation.** Only deterministic invariant evaluation plus trace references can create a finding. Gemini text is interpretation.
-2. **Bounded autonomy.** Every campaign has enforced ceilings for actors, concurrency, requests, iterations, duration, retries, Gemini use, and target hosts.
+2. **Bounded autonomy and default-deny approvals.** Every campaign has enforced ceilings for actors, concurrency, requests, iterations, duration, retries, Gemini use, and target hosts. External release actions require fresh, exact, single-purpose approval at the point of use.
 3. **Safe targets only.** Require explicit authorization and allowlisting; validate resolved destinations; block metadata and prohibited ranges; redact credentials and sensitive fields.
 4. **Reproducibility is measured.** Record seeds and replay results. Never promise control over an external server's scheduler.
 5. **Model-independent core.** Domain rules, scheduling, invariant evaluation, persistence, and replay must function with a deterministic fake planner.
@@ -110,6 +110,8 @@ Use structured RFC 9457 Problem Details at HTTP boundaries. Preserve correlation
 ## Staging Release Pattern
 
 - Treat each external release stage as an independent, default-denied capability. Credential-read-only preflight, billable foundation/image publication, saved-plan deployment, validation, smoke, and demo approvals are typed, exact-stage, and non-transitive.
+- Qualify only an immutable candidate: reject a dirty checkout or `HEAD` mismatch before expensive gates, run the fixed local gate set in deterministic order, and classify its evidence only as `local` or `local-emulated`. Launch each gate with structured arguments under an allowlisted child environment whose credential variables are absent and whose home, Cloud SDK, Docker, NuGet, and npm discovery roots are isolated inside gitignored release state.
+- Treat the generated `Preflight` request as content-addressed authorization material, not as approval. Its canonical hash covers the exact qualification and binding hashes, commit, project, region, schema, allowed read-only checks, mutation denial, and request time. Recompute that hash when creating and validating approval; require approval after qualification/request creation, allow at most two minutes of future clock skew, expire it after 15 minutes, and reject any drift or tampering.
 - Bind approval to canonical hashes of the commit, project, region, protected foundation inputs and ceilings, immutable image digests, Terraform inputs, and saved plan as applicable. Any bound-input drift invalidates that stage and downstream approvals; never rewrite an approval around new material.
 - Persist the release boundary locally with monotonic transitions and atomic replacement. Preserve earlier evidence across failures, but block forward progress after binding drift or an ambiguous external outcome until explicit verified read-only reconciliation completes. Reconciliation never broadens IAM, creates credentials, retries the mutation, regenerates a plan, applies, or destroys resources.
 - Keep raw release state and provider material outside Git. Promote only strict, environment-qualified evidence records (`local`, `local-emulated`, `cloud-read-only`, `deployed-staging`, `live-gemini`, or `timed-staging-demo`) after exact schema validation and defense-in-depth rejection of secret-shaped fields or values.

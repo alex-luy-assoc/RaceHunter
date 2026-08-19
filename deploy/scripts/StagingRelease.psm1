@@ -44,6 +44,8 @@ $script:TerraformApplicationInputNames = @(
     'reference_target_max_instance_count',
     'worker_max_instance_count'
 )
+$script:PreflightApprovalLifetime = [TimeSpan]::FromMinutes(15)
+$script:PreflightApprovalFutureSkew = [TimeSpan]::FromMinutes(2)
 
 function Get-StagingObjectValue {
     param(
@@ -571,18 +573,38 @@ function New-StagingReleaseApproval {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $Stage,
-        [Parameter(Mandatory)] [object] $Binding
+        [Parameter(Mandatory)] [object] $Binding,
+        [AllowNull()] [object] $PreflightRequest,
+        [string] $ApprovedAtUtc = ([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ', [Globalization.CultureInfo]::InvariantCulture))
     )
 
     Assert-StagingReleaseStage -Stage $Stage
     Assert-StagingReleaseBindingForStage -Stage $Stage -Binding $Binding
+    $qualificationHash = $null
+    $preflightRequestHash = $null
+    if ($Stage -ceq 'Preflight') {
+        if ($null -eq $PreflightRequest) { throw 'Preflight approval requires the exact generated preflight request.' }
+        $qualificationHash = Get-StagingObjectValue -InputObject $PreflightRequest -Name 'qualificationHash'
+        $preflightRequestHash = Get-StagingObjectValue -InputObject $PreflightRequest -Name 'requestHash'
+        $requestQualification = [pscustomobject][ordered]@{
+            passed = $true
+            bindingHash = Get-StagingObjectValue -InputObject $Binding -Name 'bindingHash'
+            qualificationHash = $qualificationHash
+            observedAtUtc = Get-StagingObjectValue -InputObject $PreflightRequest -Name 'requestedAtUtc'
+        }
+        if (-not (Test-StagingPreflightRequest -Request $PreflightRequest -Binding $Binding -Qualification $requestQualification)) {
+            throw 'Preflight approval requires the exact validated request content and request hash.'
+        }
+    }
     return [pscustomobject][ordered]@{
         stage = $Stage
         bindingHash = Get-StagingObjectValue -InputObject $Binding -Name 'bindingHash'
         commitSha = Get-StagingObjectValue -InputObject $Binding -Name 'commitSha'
         projectId = Get-StagingObjectValue -InputObject $Binding -Name 'projectId'
         region = Get-StagingObjectValue -InputObject $Binding -Name 'region'
-        approvedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
+        qualificationHash = $qualificationHash
+        preflightRequestHash = $preflightRequestHash
+        approvedAtUtc = $ApprovedAtUtc
         valid = $true
         invalidationReason = $null
     }
@@ -596,7 +618,7 @@ function Test-StagingReleaseApprovalRecord {
 
     try { $names = @(Get-StagingObjectPropertyNames -InputObject $Approval | Sort-Object -CaseSensitive) }
     catch { return $false }
-    $requiredNames = @('approvedAtUtc', 'bindingHash', 'commitSha', 'invalidationReason', 'projectId', 'region', 'stage', 'valid') | Sort-Object -CaseSensitive
+    $requiredNames = @('approvedAtUtc', 'bindingHash', 'commitSha', 'invalidationReason', 'preflightRequestHash', 'projectId', 'qualificationHash', 'region', 'stage', 'valid') | Sort-Object -CaseSensitive
     if (($names -join ',') -cne ($requiredNames -join ',')) { return $false }
 
     $valid = Get-StagingObjectValue -InputObject $Approval -Name 'valid'
@@ -606,6 +628,8 @@ function Test-StagingReleaseApprovalRecord {
     $projectId = Get-StagingObjectValue -InputObject $Approval -Name 'projectId'
     $region = Get-StagingObjectValue -InputObject $Approval -Name 'region'
     $approvedAtUtc = Get-StagingObjectValue -InputObject $Approval -Name 'approvedAtUtc'
+    $qualificationHash = Get-StagingObjectValue -InputObject $Approval -Name 'qualificationHash'
+    $preflightRequestHash = Get-StagingObjectValue -InputObject $Approval -Name 'preflightRequestHash'
     $invalidationReason = Get-StagingObjectValue -InputObject $Approval -Name 'invalidationReason'
 
     if ($valid -isnot [bool] -or $valid -cne $true) { return $false }
@@ -615,6 +639,11 @@ function Test-StagingReleaseApprovalRecord {
     if ($projectId -isnot [string] -or $projectId -notmatch '^[a-z][a-z0-9-]{4,28}[a-z0-9]$') { return $false }
     if ($region -isnot [string] -or $region -notmatch '^[a-z]+-[a-z]+[0-9]$') { return $false }
     if ($null -ne $invalidationReason) { return $false }
+    if ($Stage -ceq 'Preflight') {
+        if ($qualificationHash -isnot [string] -or $qualificationHash -notmatch '^[a-f0-9]{64}$') { return $false }
+        if ($preflightRequestHash -isnot [string] -or $preflightRequestHash -notmatch '^[a-f0-9]{64}$') { return $false }
+    }
+    elseif ($null -ne $qualificationHash -or $null -ne $preflightRequestHash) { return $false }
     if ($approvedAtUtc -isnot [string] -or ($approvedAtUtc -notmatch '(?:Z|\+00:00)$')) { return $false }
     $parsedTimestamp = [DateTimeOffset]::MinValue
     if (-not [DateTimeOffset]::TryParse(
@@ -632,20 +661,55 @@ function Test-StagingReleaseApproval {
     param(
         [Parameter(Mandatory)] [string] $Stage,
         [Parameter(Mandatory)] [object] $Binding,
-        [AllowNull()] [object] $Approval
+        [AllowNull()] [object] $Approval,
+        [AllowNull()] [object] $PreflightRequest,
+        [AllowNull()] [object] $Qualification,
+        [string] $CurrentTimeUtc = ([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ', [Globalization.CultureInfo]::InvariantCulture))
     )
 
     Assert-StagingReleaseStage -Stage $Stage
     if (-not (Test-StagingReleaseBindingForStage -Stage $Stage -Binding $Binding)) { return $false }
     if ($null -eq $Approval) { return $false }
     if (-not (Test-StagingReleaseApprovalRecord -Stage $Stage -Approval $Approval)) { return $false }
-    return (
+    $matchesBinding = (
         (Get-StagingObjectValue -InputObject $Approval -Name 'stage') -ceq $Stage -and
         (Get-StagingObjectValue -InputObject $Approval -Name 'bindingHash') -ceq (Get-StagingObjectValue -InputObject $Binding -Name 'bindingHash') -and
         (Get-StagingObjectValue -InputObject $Approval -Name 'commitSha') -ceq (Get-StagingObjectValue -InputObject $Binding -Name 'commitSha') -and
         (Get-StagingObjectValue -InputObject $Approval -Name 'projectId') -ceq (Get-StagingObjectValue -InputObject $Binding -Name 'projectId') -and
         (Get-StagingObjectValue -InputObject $Approval -Name 'region') -ceq (Get-StagingObjectValue -InputObject $Binding -Name 'region')
     )
+    if (-not $matchesBinding) { return $false }
+    if ($Stage -cne 'Preflight') { return $true }
+    if ($null -eq $PreflightRequest -or $null -eq $Qualification) { return $false }
+    if (-not (Test-StagingPreflightRequest -Request $PreflightRequest -Binding $Binding -Qualification $Qualification)) { return $false }
+    if (
+        (Get-StagingObjectValue -InputObject $Approval -Name 'qualificationHash') -cne (Get-StagingObjectValue -InputObject $Qualification -Name 'qualificationHash') -or
+        (Get-StagingObjectValue -InputObject $Approval -Name 'preflightRequestHash') -cne (Get-StagingObjectValue -InputObject $PreflightRequest -Name 'requestHash')) {
+        return $false
+    }
+
+    $approvedAt = [DateTimeOffset]::MinValue
+    $qualificationAt = [DateTimeOffset]::MinValue
+    $requestedAt = [DateTimeOffset]::MinValue
+    $currentTime = [DateTimeOffset]::MinValue
+    foreach ($candidate in @(
+        @{ value = Get-StagingObjectValue -InputObject $Approval -Name 'approvedAtUtc'; target = [ref]$approvedAt },
+        @{ value = Get-StagingObjectValue -InputObject $Qualification -Name 'observedAtUtc'; target = [ref]$qualificationAt },
+        @{ value = Get-StagingObjectValue -InputObject $PreflightRequest -Name 'requestedAtUtc'; target = [ref]$requestedAt },
+        @{ value = $CurrentTimeUtc; target = [ref]$currentTime }
+    )) {
+        if ($candidate.value -isnot [string] -or -not [DateTimeOffset]::TryParse(
+            $candidate.value,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal,
+            $candidate.target) -or $candidate.target.Value.Offset -ne [TimeSpan]::Zero) {
+            return $false
+        }
+    }
+    if ($approvedAt -lt $qualificationAt -or $approvedAt -lt $requestedAt) { return $false }
+    if ($approvedAt -gt $currentTime.Add($script:PreflightApprovalFutureSkew)) { return $false }
+    if (($currentTime - $approvedAt) -gt $script:PreflightApprovalLifetime) { return $false }
+    return $true
 }
 
 function Assert-StagingReleaseApproval {
@@ -653,10 +717,12 @@ function Assert-StagingReleaseApproval {
     param(
         [Parameter(Mandatory)] [string] $Stage,
         [Parameter(Mandatory)] [object] $Binding,
-        [AllowNull()] [object] $Approval
+        [AllowNull()] [object] $Approval,
+        [AllowNull()] [object] $PreflightRequest,
+        [AllowNull()] [object] $Qualification
     )
 
-    if (-not (Test-StagingReleaseApproval -Stage $Stage -Binding $Binding -Approval $Approval)) {
+    if (-not (Test-StagingReleaseApproval -Stage $Stage -Binding $Binding -Approval $Approval -PreflightRequest $PreflightRequest -Qualification $Qualification)) {
         throw "Stage '$Stage' is default denied. Supply a fresh approval bound to this exact stage and release identity."
     }
 }
@@ -689,7 +755,8 @@ function Get-StagingReleaseState {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "Staging release state does not exist at '$Path'."
     }
-    return Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json -Depth 100
+    # Preserve timestamp bytes as strings so request hashes remain stable across resume.
+    return Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json -Depth 100 -DateKind String
 }
 
 function Initialize-StagingReleaseState {
@@ -824,7 +891,13 @@ function Add-StagingReleaseApproval {
     $state = Get-StagingReleaseState -Path $Path
     $stage = [string](Get-StagingObjectValue -InputObject $Approval -Name 'stage')
     Assert-StagingReleaseStage -Stage $stage
-    if (-not (Test-StagingReleaseApproval -Stage $stage -Binding $state.binding -Approval $Approval)) {
+    $approvalValid = if ($stage -ceq 'Preflight') {
+        Test-StagingReleaseApproval -Stage $stage -Binding $state.binding -Approval $Approval -PreflightRequest $state.preflightRequest -Qualification $state.localQualification
+    }
+    else {
+        Test-StagingReleaseApproval -Stage $stage -Binding $state.binding -Approval $Approval
+    }
+    if (-not $approvalValid) {
         throw 'Approval record is malformed, invalid, or does not match the durable release state.'
     }
     $state.approvals | Add-Member -NotePropertyName $stage -NotePropertyValue $Approval -Force
@@ -863,6 +936,372 @@ function Update-StagingReleaseBinding {
     $state.recovery.failedStage = $ChangedAtStage
     $state.recovery.failureReason = 'Release binding drift detected.'
     $state.recovery.reconciledAtUtc = $null
+    Write-StagingReleaseState -Path $Path -State $state
+    return $state
+}
+
+function New-StagingLocalQualificationGate {
+    param(
+        [Parameter(Mandatory)] [string] $Name,
+        [Parameter(Mandatory)] [ValidateSet('local', 'local-emulated')] [string] $Classification,
+        [Parameter(Mandatory)] [string] $FilePath,
+        [Parameter(Mandatory)] [string[]] $ArgumentList,
+        [Parameter(Mandatory)] [string] $WorkingDirectory,
+        [int[]] $ExpectedExitCodes = @(0)
+    )
+
+    return [pscustomobject][ordered]@{
+        name = $Name
+        classification = $Classification
+        filePath = $FilePath
+        argumentList = @($ArgumentList)
+        workingDirectory = $WorkingDirectory
+        expectedExitCodes = @($ExpectedExitCodes)
+    }
+}
+
+function Get-StagingLocalQualificationGates {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $RepositoryRoot,
+        [Parameter(Mandatory)] [ValidatePattern('^[a-fA-F0-9]{40}$')] [string] $CommitSha
+    )
+
+    $root = [IO.Path]::GetFullPath($RepositoryRoot)
+    if (-not (Test-Path -LiteralPath (Join-Path $root 'RaceHunter.slnx') -PathType Leaf)) {
+        throw "Repository root '$root' does not contain RaceHunter.slnx."
+    }
+    $npm = if ($IsWindows) { 'npm.cmd' } else { 'npm' }
+    $volume = "${root}:/workspace"
+    $localTag = $CommitSha.ToLowerInvariant()
+    $secretPattern = 'AIza[0-9A-Za-z_-]{35}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|Bearer [A-Za-z0-9._~+/=-]{20,}'
+
+    return @(
+        (New-StagingLocalQualificationGate -Name 'clean-checkout' -Classification local -FilePath git -ArgumentList @('status', '--porcelain=v1', '--untracked-files=all') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'release-candidate-commit' -Classification local -FilePath git -ArgumentList @('rev-parse', '--verify', 'HEAD') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'dotnet-restore' -Classification local -FilePath dotnet -ArgumentList @('restore', 'RaceHunter.slnx') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'dotnet-tests' -Classification local -FilePath dotnet -ArgumentList @('test', 'RaceHunter.slnx', '-c', 'Release', '--no-restore') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'web-install' -Classification local -FilePath $npm -ArgumentList @('ci', '--prefix', 'src/RaceHunter.Web') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'web-tests' -Classification local -FilePath $npm -ArgumentList @('test', '--prefix', 'src/RaceHunter.Web') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'web-lint' -Classification local -FilePath $npm -ArgumentList @('run', 'lint', '--prefix', 'src/RaceHunter.Web') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'web-build' -Classification local -FilePath $npm -ArgumentList @('run', 'build', '--prefix', 'src/RaceHunter.Web') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'acceptance-install' -Classification local -FilePath $npm -ArgumentList @('ci', '--prefix', 'tests/RaceHunter.AcceptanceTests') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'fresh-volume-real-playwright' -Classification local-emulated -FilePath pwsh -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', (Join-Path $root 'scripts/run-real-playwright.ps1')) -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'api-image-build' -Classification local -FilePath docker -ArgumentList @('build', '--file', 'src/RaceHunter.Api/Dockerfile', '--tag', "racehunter-api:local-$localTag", '.') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'worker-image-build' -Classification local -FilePath docker -ArgumentList @('build', '--file', 'src/RaceHunter.Worker/Dockerfile', '--tag', "racehunter-worker:local-$localTag", '.') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'reference-target-image-build' -Classification local -FilePath docker -ArgumentList @('build', '--file', 'src/RaceHunter.ReferenceTarget/Dockerfile', '--tag', "racehunter-reference-target:local-$localTag", '.') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'compose-config' -Classification local -FilePath docker -ArgumentList @('compose', 'config', '--quiet') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'nuget-dependency-audit' -Classification local -FilePath dotnet -ArgumentList @('list', 'RaceHunter.slnx', 'package', '--vulnerable', '--include-transitive') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'web-dependency-audit' -Classification local -FilePath $npm -ArgumentList @('audit', '--audit-level=high', '--prefix', 'src/RaceHunter.Web') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'acceptance-dependency-audit' -Classification local -FilePath $npm -ArgumentList @('audit', '--audit-level=high', '--prefix', 'tests/RaceHunter.AcceptanceTests') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'repository-secret-scan' -Classification local -FilePath git -ArgumentList @('grep', '--quiet', '-I', '-E', $secretPattern, '--', '.') -WorkingDirectory $root -ExpectedExitCodes @(1)),
+        (New-StagingLocalQualificationGate -Name 'terraform-format' -Classification local -FilePath docker -ArgumentList @('run', '--rm', '-v', $volume, '-w', '/workspace/deploy/terraform', 'hashicorp/terraform:1.14.4', 'fmt', '-check', '-diff', '-recursive') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'terraform-bootstrap-init' -Classification local -FilePath docker -ArgumentList @('run', '--rm', '-v', $volume, '-w', '/workspace/deploy/terraform/bootstrap', 'hashicorp/terraform:1.14.4', 'init', '-backend=false') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'terraform-bootstrap-validate' -Classification local -FilePath docker -ArgumentList @('run', '--rm', '-v', $volume, '-w', '/workspace/deploy/terraform/bootstrap', 'hashicorp/terraform:1.14.4', 'validate') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'terraform-application-init' -Classification local -FilePath docker -ArgumentList @('run', '--rm', '-v', $volume, '-w', '/workspace/deploy/terraform', 'hashicorp/terraform:1.14.4', 'init', '-backend=false') -WorkingDirectory $root),
+        (New-StagingLocalQualificationGate -Name 'terraform-application-validate' -Classification local -FilePath docker -ArgumentList @('run', '--rm', '-v', $volume, '-w', '/workspace/deploy/terraform', 'hashicorp/terraform:1.14.4', 'validate') -WorkingDirectory $root)
+    )
+}
+
+function Invoke-StagingLocalQualificationCommand {
+    param([Parameter(Mandatory)] [object] $Gate)
+
+    $requestedFilePath = [string]$Gate.filePath
+    if ([IO.Path]::IsPathRooted($requestedFilePath)) {
+        $resolvedFilePath = [IO.Path]::GetFullPath($requestedFilePath)
+        if (-not (Test-Path -LiteralPath $resolvedFilePath -PathType Leaf)) {
+            throw "Local qualification executable does not exist for gate '$($Gate.name)'."
+        }
+    }
+    else {
+        $application = @(Get-Command -Name $requestedFilePath -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if ($application.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$application[0].Source)) {
+            throw "Local qualification executable could not be resolved for gate '$($Gate.name)'."
+        }
+        $resolvedFilePath = [IO.Path]::GetFullPath([string]$application[0].Source)
+    }
+
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    # Windows command shims require an absolute path so %~dp0 resolves to the
+    # installed runtime rather than the repository working directory.
+    $startInfo.FileName = $resolvedFilePath
+    $startInfo.WorkingDirectory = [string]$Gate.workingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in @($Gate.argumentList)) { $startInfo.ArgumentList.Add([string]$argument) }
+
+    # Start from an allowlisted environment so future Google/Cloud SDK credential variables
+    # cannot silently cross the local-only boundary. Discovery roots are isolated as well.
+    $safeEnvironment = [ordered]@{}
+    foreach ($name in @('PATH', 'PATHEXT', 'SystemRoot', 'WINDIR', 'COMSPEC', 'OS', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'DOTNET_ROOT', 'DOTNET_ROOT_X64', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'LANG', 'LC_ALL', 'TERM')) {
+        $value = [Environment]::GetEnvironmentVariable($name)
+        if (-not [string]::IsNullOrWhiteSpace($value)) { $safeEnvironment[$name] = $value }
+    }
+    $isolationRoot = [IO.Path]::Combine([string]$Gate.workingDirectory, 'memory-bank', '.local', 'staging-release', 'credential-free-home')
+    $cloudSdkRoot = [IO.Path]::Combine($isolationRoot, 'gcloud')
+    $dockerRoot = [IO.Path]::Combine($isolationRoot, 'docker')
+    $nugetRoot = [IO.Path]::Combine($isolationRoot, 'nuget-packages')
+    $npmRoot = [IO.Path]::Combine($isolationRoot, 'npm-cache')
+    foreach ($directory in @($isolationRoot, $cloudSdkRoot, $dockerRoot, $nugetRoot, $npmRoot)) {
+        [IO.Directory]::CreateDirectory($directory) | Out-Null
+    }
+    $safeEnvironment.HOME = $isolationRoot
+    $safeEnvironment.USERPROFILE = $isolationRoot
+    $safeEnvironment.APPDATA = [IO.Path]::Combine($isolationRoot, 'app-data')
+    $safeEnvironment.LOCALAPPDATA = [IO.Path]::Combine($isolationRoot, 'local-app-data')
+    $safeEnvironment.XDG_CONFIG_HOME = [IO.Path]::Combine($isolationRoot, 'xdg-config')
+    $safeEnvironment.XDG_CACHE_HOME = [IO.Path]::Combine($isolationRoot, 'xdg-cache')
+    $safeEnvironment.XDG_DATA_HOME = [IO.Path]::Combine($isolationRoot, 'xdg-data')
+    $safeEnvironment.CLOUDSDK_CONFIG = $cloudSdkRoot
+    $safeEnvironment.DOCKER_CONFIG = $dockerRoot
+    $safeEnvironment.NUGET_PACKAGES = $nugetRoot
+    $safeEnvironment.npm_config_cache = $npmRoot
+    $startInfo.Environment.Clear()
+    foreach ($entry in $safeEnvironment.GetEnumerator()) { $startInfo.Environment[[string]$entry.Key] = [string]$entry.Value }
+
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) { throw "Local qualification gate '$($Gate.name)' could not start." }
+        $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
+        $standardErrorTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $standardOutput = $standardOutputTask.GetAwaiter().GetResult()
+        $standardError = $standardErrorTask.GetAwaiter().GetResult()
+        return [pscustomobject][ordered]@{
+            exitCode = $process.ExitCode
+            standardOutput = $standardOutput
+            standardError = $standardError
+        }
+    }
+    finally {
+        $process.Dispose()
+    }
+}
+
+function New-StagingPreflightRequest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [object] $Binding,
+        [Parameter(Mandatory)] [object] $Qualification
+    )
+
+    $requestedAtUtc = [string](Get-StagingObjectValue -InputObject $Qualification -Name 'observedAtUtc')
+    $requestMaterial = [ordered]@{
+        schemaVersion = '1.0'
+        stage = 'Preflight'
+        commitSha = [string](Get-StagingObjectValue -InputObject $Binding -Name 'commitSha')
+        projectId = [string](Get-StagingObjectValue -InputObject $Binding -Name 'projectId')
+        region = [string](Get-StagingObjectValue -InputObject $Binding -Name 'region')
+        bindingHash = [string](Get-StagingObjectValue -InputObject $Binding -Name 'bindingHash')
+        qualificationHash = [string](Get-StagingObjectValue -InputObject $Qualification -Name 'qualificationHash')
+        requestedAtUtc = $requestedAtUtc
+        approvalRequired = $true
+        authorizesMutation = $false
+        allowedChecks = @('active-principal', 'project', 'billing-link', 'quotas', 'permissions', 'region-availability', 'existing-resources')
+    }
+    $request = [pscustomobject]$requestMaterial
+    $request | Add-Member -NotePropertyName requestHash -NotePropertyValue (Get-StagingCanonicalHash -Value $requestMaterial)
+    if (-not (Test-StagingPreflightRequest -Request $request -Binding $Binding -Qualification $Qualification)) {
+        throw 'Cannot prepare preflight request from incomplete or drifted local qualification.'
+    }
+    return $request
+}
+
+function Test-StagingPreflightRequest {
+    [CmdletBinding()]
+    param(
+        [AllowNull()] [object] $Request,
+        [Parameter(Mandatory)] [object] $Binding,
+        [Parameter(Mandatory)] [object] $Qualification
+    )
+
+    if ($null -eq $Request) { return $false }
+    try { $names = @(Get-StagingObjectPropertyNames -InputObject $Request | Sort-Object -CaseSensitive) }
+    catch { return $false }
+    $expectedNames = @('allowedChecks', 'approvalRequired', 'authorizesMutation', 'bindingHash', 'commitSha', 'projectId', 'qualificationHash', 'region', 'requestHash', 'requestedAtUtc', 'schemaVersion', 'stage') | Sort-Object -CaseSensitive
+    if (($names -join ',') -cne ($expectedNames -join ',')) { return $false }
+    $allowedChecks = Get-StagingObjectValue -InputObject $Request -Name 'allowedChecks'
+    if ($allowedChecks -is [string] -or $allowedChecks -isnot [Collections.IEnumerable]) { return $false }
+    $expectedChecks = @('active-principal', 'project', 'billing-link', 'quotas', 'permissions', 'region-availability', 'existing-resources')
+    $requestMaterial = [ordered]@{
+        schemaVersion = Get-StagingObjectValue -InputObject $Request -Name 'schemaVersion'
+        stage = Get-StagingObjectValue -InputObject $Request -Name 'stage'
+        commitSha = Get-StagingObjectValue -InputObject $Request -Name 'commitSha'
+        projectId = Get-StagingObjectValue -InputObject $Request -Name 'projectId'
+        region = Get-StagingObjectValue -InputObject $Request -Name 'region'
+        bindingHash = Get-StagingObjectValue -InputObject $Request -Name 'bindingHash'
+        qualificationHash = Get-StagingObjectValue -InputObject $Request -Name 'qualificationHash'
+        requestedAtUtc = Get-StagingObjectValue -InputObject $Request -Name 'requestedAtUtc'
+        approvalRequired = Get-StagingObjectValue -InputObject $Request -Name 'approvalRequired'
+        authorizesMutation = Get-StagingObjectValue -InputObject $Request -Name 'authorizesMutation'
+        allowedChecks = @($Request.allowedChecks)
+    }
+    return (
+        (Get-StagingObjectValue -InputObject $Request -Name 'schemaVersion') -is [string] -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'schemaVersion') -ceq '1.0' -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'stage') -is [string] -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'stage') -ceq 'Preflight' -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'approvalRequired') -is [bool] -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'approvalRequired') -ceq $true -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'authorizesMutation') -is [bool] -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'authorizesMutation') -ceq $false -and
+        (@($allowedChecks) -join ',') -ceq ($expectedChecks -join ',') -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'requestHash') -is [string] -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'requestHash') -ceq (Get-StagingCanonicalHash -Value $requestMaterial) -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'requestedAtUtc') -ceq (Get-StagingObjectValue -InputObject $Qualification -Name 'observedAtUtc') -and
+        (Get-StagingObjectValue -InputObject $Qualification -Name 'passed') -is [bool] -and
+        (Get-StagingObjectValue -InputObject $Qualification -Name 'passed') -ceq $true -and
+        (Get-StagingObjectValue -InputObject $Qualification -Name 'bindingHash') -ceq (Get-StagingObjectValue -InputObject $Binding -Name 'bindingHash') -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'bindingHash') -ceq (Get-StagingObjectValue -InputObject $Binding -Name 'bindingHash') -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'qualificationHash') -ceq (Get-StagingObjectValue -InputObject $Qualification -Name 'qualificationHash') -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'commitSha') -ceq (Get-StagingObjectValue -InputObject $Binding -Name 'commitSha') -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'projectId') -ceq (Get-StagingObjectValue -InputObject $Binding -Name 'projectId') -and
+        (Get-StagingObjectValue -InputObject $Request -Name 'region') -ceq (Get-StagingObjectValue -InputObject $Binding -Name 'region')
+    )
+}
+
+function Assert-StagingPreflightRequest {
+    [CmdletBinding()]
+    param(
+        [AllowNull()] [object] $Request,
+        [Parameter(Mandatory)] [object] $Binding,
+        [Parameter(Mandatory)] [object] $Qualification
+    )
+
+    if (-not (Test-StagingPreflightRequest -Request $Request -Binding $Binding -Qualification $Qualification)) {
+        throw 'Preflight request is missing, incomplete, or invalidated by release-candidate drift.'
+    }
+}
+
+function Invoke-StagingLocalQualification {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $RepositoryRoot,
+        [Parameter(Mandatory)] [object] $Binding,
+        [scriptblock] $CommandRunner,
+        [string] $ObservedAtUtc = ([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ', [Globalization.CultureInfo]::InvariantCulture))
+    )
+
+    $commitSha = [string](Get-StagingObjectValue -InputObject $Binding -Name 'commitSha')
+    $gates = @(Get-StagingLocalQualificationGates -RepositoryRoot $RepositoryRoot -CommitSha $commitSha)
+    if ($null -eq $CommandRunner) {
+        $CommandRunner = { param($gate) Invoke-StagingLocalQualificationCommand -Gate $gate }
+    }
+
+    $results = @()
+    $evidence = @()
+    foreach ($gate in $gates) {
+        $outcome = & $CommandRunner $gate
+        $exitCode = Get-StagingObjectValue -InputObject $outcome -Name 'exitCode'
+        if ($exitCode -is [bool] -or $exitCode -isnot [ValueType] -or [int]$exitCode -notin @($gate.expectedExitCodes)) {
+            throw "Local qualification gate '$($gate.name)' failed with exit code '$exitCode'."
+        }
+        $standardOutput = [string](Get-StagingObjectValue -InputObject $outcome -Name 'standardOutput')
+        if ($gate.name -ceq 'clean-checkout' -and -not [string]::IsNullOrWhiteSpace($standardOutput)) {
+            throw 'Local qualification requires a clean checkout with no tracked or untracked release-candidate drift.'
+        }
+        if ($gate.name -ceq 'release-candidate-commit' -and $standardOutput.Trim() -cne $commitSha) {
+            throw 'Checked-out commit does not match the immutable release-candidate commit.'
+        }
+
+        $result = [pscustomobject][ordered]@{
+            name = $gate.name
+            classification = $gate.classification
+            status = 'passed'
+        }
+        $results += $result
+        $identifiers = [ordered]@{ gate = $gate.name; gateSetVersion = '1.0' }
+        if ($gate.name -in @('api-image-build', 'worker-image-build', 'reference-target-image-build')) {
+            $identifiers.localImageTag = "local-$commitSha"
+        }
+        $record = [pscustomobject][ordered]@{
+            schemaVersion = '1.0'
+            classification = $gate.classification
+            observedAtUtc = $ObservedAtUtc
+            environment = 'local'
+            method = $gate.name
+            expected = [pscustomobject]@{ summary = "Gate '$($gate.name)' succeeds for the exact release candidate." }
+            observed = [pscustomobject]@{ summary = "Gate '$($gate.name)' passed without credentialed cloud access."; status = 'passed' }
+            commitSha = $commitSha
+            imageDigests = [pscustomobject]@{}
+            identifiers = [pscustomobject]$identifiers
+            artifactReference = "memory-bank/.local/staging-release/local-qualification/$($gate.name).json"
+        }
+        $evidence += Protect-StagingEvidence -Evidence $record
+    }
+
+    $qualificationMaterial = [ordered]@{
+        gateSetVersion = '1.0'
+        bindingHash = Get-StagingObjectValue -InputObject $Binding -Name 'bindingHash'
+        commitSha = $commitSha
+        gates = @($results)
+    }
+    $qualification = [pscustomobject][ordered]@{
+        schemaVersion = '1.0'
+        gateSetVersion = '1.0'
+        observedAtUtc = $ObservedAtUtc
+        commitSha = $commitSha
+        bindingHash = Get-StagingObjectValue -InputObject $Binding -Name 'bindingHash'
+        qualificationHash = Get-StagingCanonicalHash -Value $qualificationMaterial
+        passed = $true
+        gates = @($results)
+        evidence = @($evidence)
+        preflightRequest = $null
+    }
+    $qualification.preflightRequest = New-StagingPreflightRequest -Binding $Binding -Qualification $qualification
+    return $qualification
+}
+
+function Save-StagingLocalQualification {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [object] $Binding,
+        [Parameter(Mandatory)] [object] $Qualification
+    )
+
+    Assert-StagingPreflightRequest -Request (Get-StagingObjectValue -InputObject $Qualification -Name 'preflightRequest') -Binding $Binding -Qualification $Qualification
+    $state = if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        Get-StagingReleaseState -Path $Path
+    }
+    else {
+        Initialize-StagingReleaseState -Path $Path -Binding $Binding
+    }
+    if ($state.binding.bindingHash -cne (Get-StagingObjectValue -InputObject $Binding -Name 'bindingHash')) {
+        throw 'Local qualification cannot be saved against a drifted release binding.'
+    }
+    if ($state.currentStage -ceq 'LocalQualified') {
+        if ($state.localQualification.qualificationHash -cne (Get-StagingObjectValue -InputObject $Qualification -Name 'qualificationHash')) {
+            throw 'Stored local qualification belongs to different release-candidate evidence.'
+        }
+        return $state
+    }
+    if ($state.currentStage -cne 'Initialized' -or [bool]$state.recovery.requiresReadOnlyInspection) {
+        throw "Local qualification cannot be saved from release stage '$($state.currentStage)'."
+    }
+
+    $protectedEvidence = @()
+    foreach ($record in @($Qualification.evidence)) {
+        $protectedEvidence += Protect-StagingEvidence -Evidence $record
+    }
+    $durableQualification = [pscustomobject][ordered]@{
+        schemaVersion = Get-StagingObjectValue -InputObject $Qualification -Name 'schemaVersion'
+        gateSetVersion = Get-StagingObjectValue -InputObject $Qualification -Name 'gateSetVersion'
+        observedAtUtc = Get-StagingObjectValue -InputObject $Qualification -Name 'observedAtUtc'
+        commitSha = Get-StagingObjectValue -InputObject $Qualification -Name 'commitSha'
+        bindingHash = Get-StagingObjectValue -InputObject $Qualification -Name 'bindingHash'
+        qualificationHash = Get-StagingObjectValue -InputObject $Qualification -Name 'qualificationHash'
+        passed = $true
+        gates = @(Get-StagingObjectValue -InputObject $Qualification -Name 'gates')
+    }
+    $state | Add-Member -NotePropertyName localQualification -NotePropertyValue $durableQualification -Force
+    $state | Add-Member -NotePropertyName preflightRequest -NotePropertyValue (Get-StagingObjectValue -InputObject $Qualification -Name 'preflightRequest') -Force
+    $state.evidence = @($state.evidence) + @($protectedEvidence)
+    $state.currentStage = 'LocalQualified'
+    $state.transitions = @($state.transitions) + [pscustomobject][ordered]@{ stage = 'LocalQualified'; observedAtUtc = Get-StagingObjectValue -InputObject $Qualification -Name 'observedAtUtc' }
     Write-StagingReleaseState -Path $Path -State $state
     return $state
 }
@@ -1062,6 +1501,13 @@ Export-ModuleMember -Function @(
     'Add-StagingReleaseApproval',
     'Add-StagingReleaseEvidence',
     'Update-StagingReleaseBinding',
+    'Get-StagingLocalQualificationGates',
+    'Invoke-StagingLocalQualificationCommand',
+    'Invoke-StagingLocalQualification',
+    'Save-StagingLocalQualification',
+    'New-StagingPreflightRequest',
+    'Test-StagingPreflightRequest',
+    'Assert-StagingPreflightRequest',
     'Set-StagingReleaseFailure',
     'Complete-StagingReleaseReconciliation',
     'ConvertTo-StagingRedactedText',
