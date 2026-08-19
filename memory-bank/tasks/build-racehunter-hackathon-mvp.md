@@ -1,17 +1,20 @@
 ---
 slug: build-racehunter-hackathon-mvp
 feature: racehunter-autonomous-concurrency-campaign
-status: REFLECTION_COMPLETE
+status: COMPLETE
 ---
 
 # build-racehunter-hackathon-mvp: Build the RaceHunter Hackathon MVP
 
 **Complexity**: Level 4
-**Status**: REFLECTION_COMPLETE
+**Status**: COMPLETE
 **Roadmap**: racehunter-autonomous-concurrency-campaign
 **Branch**: feature/build-racehunter-hackathon-mvp
 **Worktree**: C:\Users\alexa\source\repos\RaceHunter
 **Reflection**: memory-bank/reflection/build-racehunter-hackathon-mvp-reflection.md
+**Archived**: memory-bank/archive/build-racehunter-hackathon-mvp-archive.md
+**Completed**: 2026-08-18
+**Latest Commit**: 8993d25
 
 ## Task Description
 
@@ -254,23 +257,23 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] `src/RaceHunter.Domain/RaceHunter.Domain.csproj` — domain project
 - [x] `src/RaceHunter.Domain/Common/DomainException.cs` — domain failure base
 - [x] `src/RaceHunter.Domain/Projects/Project.cs` — project aggregate
-- [ ] `src/RaceHunter.Domain/Targets/TargetSystem.cs` — authorized target aggregate
-- [ ] `src/RaceHunter.Domain/Experiments/Experiment.cs` — experiment aggregate
-- [ ] `src/RaceHunter.Domain/Scenarios/ScenarioDefinition.cs` — versioned actors and steps
+- [x] `src/RaceHunter.Domain/Targets/TargetSystem.cs` — reconciled: immutable target definitions and ownership are consolidated into `Hunts/ManualTargets.cs`, persistence records, and replay snapshots
+- [x] `src/RaceHunter.Domain/Experiments/Experiment.cs` — reconciled: campaign identity and lifecycle are represented by `ExperimentRun` plus persisted hunt snapshots; a second aggregate was deliberately omitted
+- [x] `src/RaceHunter.Domain/Scenarios/ScenarioDefinition.cs` — reconciled: versioned scenario plans live in `Application/Abstractions/Agents.cs` and immutable replay snapshots
 - [x] `src/RaceHunter.Domain/Invariants/InvariantDefinition.cs` — versioned invariant contract
 - [x] `src/RaceHunter.Domain/Runs/ExperimentRun.cs` — campaign lifecycle aggregate
 - [x] `src/RaceHunter.Domain/Runs/RunAttempt.cs` — schedule attempt entity
 - [x] `src/RaceHunter.Domain/Tracing/TraceEvent.cs` — append-only evidence entity
 - [x] `src/RaceHunter.Domain/Findings/Finding.cs` — verified finding aggregate
 - [x] `src/RaceHunter.Domain/Replays/ReplayArtifact.cs` — immutable replay aggregate
-- [ ] `src/RaceHunter.Domain/Agents/AgentIteration.cs` — persisted agent decision record
+- [x] `src/RaceHunter.Domain/Agents/AgentIteration.cs` — reconciled: `AgentIterationRecord` is consolidated into `Application/Hunts/HuntWorkflow.cs` and its PostgreSQL store
 - [x] `src/RaceHunter.Domain/Budgets/ExperimentBudget.cs` — bounded campaign value object
 - [x] `src/RaceHunter.Application/RaceHunter.Application.csproj` — use-case project
 - [x] `src/RaceHunter.Application/Abstractions/Persistence.cs` — aggregate repositories and unit of work
 - [x] `src/RaceHunter.Application/Abstractions/Agents.cs` — planner, strategist, analyst, and minimizer interfaces
-- [ ] `src/RaceHunter.Application/Abstractions/Execution.cs` — scheduler, target client, queue, clock, and randomness interfaces
-- [ ] `src/RaceHunter.Application/Hunts/CreateHunt.cs` — create hunt use case
-- [ ] `src/RaceHunter.Application/Hunts/GeneratePlan.cs` — asynchronous planning use case
+- [x] `src/RaceHunter.Application/Abstractions/Execution.cs` — reconciled: focused execution boundaries are split across `Agents.cs`, `Messaging/WorkRecovery.cs`, and `Hunts/ManualTargets.cs`
+- [x] `src/RaceHunter.Application/Hunts/CreateHunt.cs` — reconciled: `CreateHunt` is implemented in `Hunts/HuntWorkflow.cs`
+- [x] `src/RaceHunter.Application/Hunts/GeneratePlan.cs` — reconciled: `GeneratePlan` is implemented in `Hunts/HuntWorkflow.cs`
 - [x] `src/RaceHunter.Application/Hunts/ApproveAndRun.cs` — one-time approval use case
 - [x] `src/RaceHunter.Application/Runs/GetRun.cs` — durable run projection
 - [x] `src/RaceHunter.Application/Runs/CancelRun.cs` — idempotent cancellation
@@ -287,14 +290,14 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] `src/RaceHunter.Infrastructure/Persistence/EntityConfigurations.cs` — strongly typed mappings
 - [x] `src/RaceHunter.Infrastructure/Persistence/Repositories.cs` — aggregate-specific repositories
 - [x] `src/RaceHunter.Infrastructure/Persistence/Migrations/InitialCreate.cs` — initial migration
-- [ ] `src/RaceHunter.Infrastructure/Persistence/Migrations/InitialCreate.Designer.cs` — migration metadata
+- [x] `src/RaceHunter.Infrastructure/Persistence/Migrations/InitialCreate.Designer.cs` — reconciled: deliberately omitted for the hand-authored migration; the authoritative EF model is retained in `RaceHunterDbContextModelSnapshot.cs`
 - [x] `src/RaceHunter.Infrastructure/Persistence/Migrations/RaceHunterDbContextModelSnapshot.cs` — EF model snapshot
 - [x] `src/RaceHunter.Infrastructure/Messaging/PubSubWorkPublisher.cs` — dispatch adapter
-- [ ] `src/RaceHunter.Infrastructure/Messaging/InboxStore.cs` — duplicate-delivery guard
-- [ ] `src/RaceHunter.Infrastructure/Targets/SafeTargetClientFactory.cs` — allowlisted HTTP clients
-- [ ] `src/RaceHunter.Infrastructure/Targets/TargetDestinationValidator.cs` — SSRF and redirect defense
-- [ ] `src/RaceHunter.Infrastructure/Secrets/GoogleSecretProvider.cs` — Secret Manager adapter
-- [ ] `src/RaceHunter.Infrastructure/Observability/TelemetryRegistration.cs` — logs, metrics, and traces
+- [x] `src/RaceHunter.Infrastructure/Messaging/InboxStore.cs` — reconciled: `WorkInboxStore` is consolidated into `Persistence/PhaseThreeStores.cs`
+- [x] `src/RaceHunter.Infrastructure/Targets/SafeTargetClientFactory.cs` — reconciled: implemented at `Infrastructure/Security/SafeTargetClientFactory.cs`
+- [x] `src/RaceHunter.Infrastructure/Targets/TargetDestinationValidator.cs` — reconciled: implemented at `Infrastructure/Security/TargetDestinationValidator.cs`
+- [x] `src/RaceHunter.Infrastructure/Secrets/GoogleSecretProvider.cs` — reconciled: implemented at `Infrastructure/Security/GoogleSecretProvider.cs`
+- [x] `src/RaceHunter.Infrastructure/Observability/TelemetryRegistration.cs` — implemented at the exact planned path
 - [x] `src/RaceHunter.Concurrency/RaceHunter.Concurrency.csproj` — deterministic execution project
 - [x] `src/RaceHunter.Concurrency/Scheduling/ConcurrencyScheduler.cs` — bounded actor runtime
 - [x] `src/RaceHunter.Concurrency/Scheduling/SchedulePlan.cs` — immutable schedule model
@@ -312,32 +315,32 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] `src/RaceHunter.Gemini/GeminiClient.cs` — Google Gen AI SDK wrapper
 - [x] `src/RaceHunter.Gemini/ScenarioPlanner.cs` — structured initial planner
 - [x] `src/RaceHunter.Gemini/ExperimentStrategist.cs` — allowlisted next-action selector
-- [ ] `src/RaceHunter.Gemini/FailureAnalyst.cs` — evidence-grounded explanation
+- [x] `src/RaceHunter.Gemini/FailureAnalyst.cs` — reconciled: deliberately omitted; deterministic, trace-linked finding summaries replace another model-authored truth-adjacent step
 - [x] `src/RaceHunter.Gemini/Schemas/AgentSchemas.cs` — versioned structured-output types
 - [x] `src/RaceHunter.Gemini/Prompts/plan-v1.txt` — planning prompt resource
 - [x] `src/RaceHunter.Gemini/Prompts/strategy-v1.txt` — strategy prompt resource
-- [ ] `src/RaceHunter.Gemini/Prompts/explain-v1.txt` — finding explanation resource
+- [x] `src/RaceHunter.Gemini/Prompts/explain-v1.txt` — reconciled: deliberately omitted with `FailureAnalyst`; plan and strategy remain the only model prompt resources
 - [x] `src/RaceHunter.Api/RaceHunter.Api.csproj` — public API composition root
 - [x] `src/RaceHunter.Api/Program.cs` — API startup and DI
 - [x] `src/RaceHunter.Api/Endpoints/HuntEndpoints.cs` — hunt endpoints
 - [x] `src/RaceHunter.Api/Endpoints/RunEndpoints.cs` — lifecycle and durable cursor-based SSE progress endpoints
 - [x] `src/RaceHunter.Api/Endpoints/FindingEndpoints.cs` — evidence endpoints and bounded verify-fix route
-- [ ] `src/RaceHunter.Api/Endpoints/ReplayEndpoints.cs` — verify-fix endpoints
-- [ ] `src/RaceHunter.Api/Sandbox/SandboxSessionMiddleware.cs` — signed judge sessions and quotas
+- [x] `src/RaceHunter.Api/Endpoints/ReplayEndpoints.cs` — reconciled: replay and Verify Fix routes are consolidated into `Endpoints/FindingEndpoints.cs`
+- [x] `src/RaceHunter.Api/Sandbox/SandboxSessionMiddleware.cs` — reconciled: public quota enforcement lives in `HuntEndpoints.cs`; authenticated ownership is handled by `Security/AdminAuthentication.cs` and `ManualResourceAuthorization.cs`
 - [x] `src/RaceHunter.Api/Dockerfile` — multi-stage React and API image
 - [x] `src/RaceHunter.Worker/RaceHunter.Worker.csproj` — private HTTP worker composition root
 - [x] `src/RaceHunter.Worker/Program.cs` — private worker host with manual execution, Vertex model composition, and authenticated Pub/Sub push
 - [x] `src/RaceHunter.Worker/Endpoints/PubSubPushEndpoint.cs` — message validation and acknowledgement
 - [x] `src/RaceHunter.Worker/Execution/WorkDispatcher.cs` — message-type dispatch
 - [x] `src/RaceHunter.Worker/Execution/CampaignRunner.cs` — bounded autonomous loop
-- [ ] `src/RaceHunter.Worker/Execution/RunLease.cs` — lease renewal and recovery
+- [x] `src/RaceHunter.Worker/Execution/RunLease.cs` — reconciled: lease acquire/heartbeat/loss behavior is consolidated into `WorkDispatcher.cs`, `WorkRecovery.cs`, and `WorkInboxStore`
 - [x] `src/RaceHunter.Worker/Dockerfile` — worker image
 - [x] `src/RaceHunter.ReferenceTarget/RaceHunter.ReferenceTarget.csproj` — demo target project
 - [x] `src/RaceHunter.ReferenceTarget/Program.cs` — target host
 - [x] `src/RaceHunter.ReferenceTarget/Inventory/InventoryDbContext.cs` — target persistence
 - [x] `src/RaceHunter.ReferenceTarget/Inventory/OrderService.cs` — vulnerable and fixed order paths
-- [ ] `src/RaceHunter.ReferenceTarget/Inventory/DemoControlEndpoints.cs` — private reset and mode controls
-- [ ] `src/RaceHunter.ReferenceTarget/Inventory/OrderEndpoints.cs` — target operations and observations
+- [x] `src/RaceHunter.ReferenceTarget/Inventory/DemoControlEndpoints.cs` — reconciled: private reset and mode routes are composed in `RaceHunter.ReferenceTarget/Program.cs`
+- [x] `src/RaceHunter.ReferenceTarget/Inventory/OrderEndpoints.cs` — reconciled: operation and observation routes are composed in `RaceHunter.ReferenceTarget/Program.cs`
 - [x] `src/RaceHunter.ReferenceTarget/Dockerfile` — target image
 - [x] `src/RaceHunter.Web/package.json` — React toolchain and scripts
 - [x] `src/RaceHunter.Web/tsconfig.json` — TypeScript configuration
@@ -346,28 +349,28 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 - [x] `src/RaceHunter.Web/src/App.tsx` — routes and application shell
 - [x] `src/RaceHunter.Web/src/api/client.ts` — typed HTTP/SSE client
 - [x] `src/RaceHunter.Web/src/api/contracts.ts` — UI boundary types
-- [ ] `src/RaceHunter.Web/src/pages/DashboardPage.tsx` — New Hunt entry
+- [x] `src/RaceHunter.Web/src/pages/DashboardPage.tsx` — reconciled: the compact dashboard/New Hunt entry is embedded in `App.tsx`
 - [x] `src/RaceHunter.Web/src/pages/NewHuntPage.tsx` — target, rule, and budget input
 - [x] `src/RaceHunter.Web/src/pages/PlanReviewPage.tsx` — one-time plan approval
 - [x] `src/RaceHunter.Web/src/pages/LiveCampaignPage.tsx` — autonomous progress and decisions
 - [x] `src/RaceHunter.Web/src/pages/FindingPage.tsx` — evidence, minimization, and comparison
 - [x] `src/RaceHunter.Web/src/components/AgentActivity.tsx` — decision history
 - [x] `src/RaceHunter.Web/src/components/ActorTimeline.tsx` — causal actor lanes
-- [ ] `src/RaceHunter.Web/src/components/BudgetStatus.tsx` — visible bounded autonomy
+- [x] `src/RaceHunter.Web/src/components/BudgetStatus.tsx` — reconciled: the visible public budgets are embedded in `NewHuntPage.tsx`, with budget-exhausted lifecycle projection in `LiveCampaignPage.tsx`
 - [x] `src/RaceHunter.Web/src/components/CloudProof.tsx` — model and deployment proof
 - [x] `src/RaceHunter.Web/src/styles/app.css` — responsive accessible styling
 - [x] `tests/RaceHunter.Domain.Tests/RaceHunter.Domain.Tests.csproj` — domain test project
 - [x] `tests/RaceHunter.Domain.Tests/ExperimentRunTests.cs` — lifecycle and budget tests
 - [x] `tests/RaceHunter.Application.Tests/RaceHunter.Application.Tests.csproj` — use-case tests
-- [ ] `tests/RaceHunter.Application.Tests/HuntWorkflowTests.cs` — create, approve, cancel behavior
+- [x] `tests/RaceHunter.Application.Tests/HuntWorkflowTests.cs` — reconciled: workflow coverage is consolidated into `ApprovalAndStrategyTests.cs`, API integration suites, and acceptance journeys
 - [x] `tests/RaceHunter.Concurrency.Tests/RaceHunter.Concurrency.Tests.csproj` — concurrency test project
 - [x] `tests/RaceHunter.Concurrency.Tests/SchedulerTests.cs` — barriers, seeds, limits, cancellation
 - [x] `tests/RaceHunter.Concurrency.Tests/InvariantEvaluatorTests.cs` — evaluator families
 - [x] `tests/RaceHunter.Concurrency.Tests/MinimizerReplayTests.cs` — reduction and replay
 - [x] `tests/RaceHunter.Infrastructure.IntegrationTests/RaceHunter.Infrastructure.IntegrationTests.csproj` — PostgreSQL and adapter tests
-- [ ] `tests/RaceHunter.Infrastructure.IntegrationTests/PersistenceMessagingTests.cs` — migrations, inbox, repositories
+- [x] `tests/RaceHunter.Infrastructure.IntegrationTests/PersistenceMessagingTests.cs` — reconciled: split by responsibility into `PersistenceFoundationTests.cs` and `MessagingRecoveryTests.cs`
 - [x] `tests/RaceHunter.Api.IntegrationTests/RaceHunter.Api.IntegrationTests.csproj` — API integration tests
-- [ ] `tests/RaceHunter.Api.IntegrationTests/HuntApiTests.cs` — contracts, SSE, sandbox quotas
+- [x] `tests/RaceHunter.Api.IntegrationTests/HuntApiTests.cs` — reconciled: hunt/auth coverage is in `ManualTargetApiTests.cs`, SSE coverage in `SseCursorTests.cs`, and public journey coverage in Playwright
 - [x] `tests/RaceHunter.Worker.Tests/RaceHunter.Worker.Tests.csproj` — lease-loss, retry-budget, planning-recovery, and reference-observation tests
 - [x] `tests/RaceHunter.ReferenceTarget.Tests/RaceHunter.ReferenceTarget.Tests.csproj` — target test project
 - [x] `tests/RaceHunter.ReferenceTarget.Tests/InventoryRaceTests.cs` — vulnerable/fixed behavior
@@ -419,8 +422,8 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 ## Build Execution State
 
 **Build Status**: IDLE
-**Current Phase**: REFLECT → ARCHIVE
-**Current Step**: Step 4 - Reflection Commit - COMPLETE (local only; no origin remote configured)
+**Current Phase**: COMPLETE
+**Current Step**: Archive bookkeeping complete; configured push/PR handoff pending an `origin` remote
 **Step Started**: 2026-08-18T21:06:59-04:00
 **Auto-Build Mode**: YES
 **Final Review Backend**: AUTO FINAL REVIEW BACKEND: codex:gpt-5.6-sol (high) — completed
@@ -430,8 +433,8 @@ No. Architecture, UI/UX, algorithm, safety, and end-to-end journey decisions wer
 
 ### Resumption Notes
 **Can Resume**: NO
-**Resume From**: `/ala:archive build-racehunter-hackathon-mvp`
-**Notes**: Level 4 reflection is complete with task quality and ALA/Codex ecosystem effectiveness both rated Good (4/5). The current branch re-ran 219 .NET tests and 8 Vitest tests successfully during reflection. Cloud resource creation, live Vertex AI, and deployed smoke testing still require explicit approval; no credentials or live Google Cloud calls were used. Terraform was validated with the official 1.14.4 container without applying it.
+**Resume From**: None; add an `origin` remote and re-run `/ala:archive build-racehunter-hackathon-mvp` only to complete the configured push/PR handoff
+**Notes**: Level 4 archive bookkeeping and the planned-file reconciliation are complete locally. The current branch re-ran 219 .NET tests and 8 Vitest tests successfully during reflection. Cloud resource creation, live Vertex AI, and deployed smoke testing still require explicit approval; no credentials or live Google Cloud calls were used. Terraform was validated with the official 1.14.4 container without applying it. No `origin` remote is configured, so the protected-branch PR remains pending.
 
 ### Halt State
 **Halt Trigger**:
