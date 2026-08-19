@@ -2,6 +2,7 @@
 status: planning
 features:
   - racehunter-autonomous-concurrency-campaign
+  - racehunter-google-cloud-staging-validation
 ---
 
 # Next
