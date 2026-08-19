@@ -16,6 +16,245 @@ public sealed class StagingReleaseContractTests
     private static readonly string ModulePath = Path.Combine(Root, "deploy", "scripts", "StagingRelease.psm1");
 
     [Fact]
+    public void Terraform_bootstrap_is_separate_from_the_remote_state_application_module()
+    {
+        var bootstrap = Path.Combine(Root, "deploy", "terraform", "bootstrap");
+        var expectedFiles = new[] { "providers.tf", "variables.tf", "main.tf", "outputs.tf" };
+        Assert.All(expectedFiles, file => Assert.True(File.Exists(Path.Combine(bootstrap, file)), $"Missing bootstrap/{file}."));
+
+        var applicationProviders = File.ReadAllText(Path.Combine(Root, "deploy", "terraform", "providers.tf"));
+        var applicationMain = File.ReadAllText(Path.Combine(Root, "deploy", "terraform", "main.tf"));
+        var bootstrapMain = File.ReadAllText(Path.Combine(bootstrap, "main.tf"));
+
+        Assert.Contains("backend \"gcs\"", applicationProviders, StringComparison.Ordinal);
+        Assert.DoesNotContain("google_project_service", applicationMain, StringComparison.Ordinal);
+        Assert.DoesNotContain("google_artifact_registry_repository", applicationMain, StringComparison.Ordinal);
+        Assert.DoesNotContain("google_storage_bucket", applicationMain, StringComparison.Ordinal);
+        Assert.DoesNotContain("google_cloud_run", bootstrapMain, StringComparison.Ordinal);
+        Assert.DoesNotContain("google_sql", bootstrapMain, StringComparison.Ordinal);
+        Assert.DoesNotContain("google_secret_manager", bootstrapMain, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Terraform_bootstrap_protects_remote_state_with_private_versioned_retained_storage()
+    {
+        var bootstrapMain = File.ReadAllText(Path.Combine(Root, "deploy", "terraform", "bootstrap", "main.tf"));
+
+        Assert.Contains("resource \"google_storage_bucket\" \"terraform_state\"", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("uniform_bucket_level_access = true", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("public_access_prevention    = \"enforced\"", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("force_destroy               = false", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("versioning", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("enabled = true", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("retention_policy", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("retention_period = var.state_retention_days * 86400", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("prevent_destroy = true", bootstrapMain, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Terraform_bootstrap_enables_declared_apis_and_an_immutable_artifact_repository()
+    {
+        var bootstrapMain = File.ReadAllText(Path.Combine(Root, "deploy", "terraform", "bootstrap", "main.tf"));
+
+        Assert.Contains("serviceusage.googleapis.com", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("artifactregistry.googleapis.com", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("run.googleapis.com", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("sqladmin.googleapis.com", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("resource \"google_project_service\" \"required\"", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("disable_on_destroy = false", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("resource \"google_artifact_registry_repository\" \"images\"", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("immutable_tags = true", bootstrapMain, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Release_plans_three_image_publications_and_binds_deploy_to_the_reviewed_plan_byte_for_byte()
+    {
+        using var temporary = new TemporaryDirectory();
+        var planPath = Path.Combine(temporary.Path, "reviewed.tfplan");
+        var tfvarsPath = Path.Combine(temporary.Path, "private.tfvars.json");
+        File.WriteAllText(planPath, "reviewed-plan", Encoding.UTF8);
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            $publication = New-StagingImagePublicationPlan -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -Repository 'racehunter'
+            $requiredApis = @('aiplatform.googleapis.com', 'artifactregistry.googleapis.com', 'billingbudgets.googleapis.com', 'cloudresourcemanager.googleapis.com', 'cloudtrace.googleapis.com', 'iam.googleapis.com', 'iamcredentials.googleapis.com', 'logging.googleapis.com', 'monitoring.googleapis.com', 'pubsub.googleapis.com', 'run.googleapis.com', 'secretmanager.googleapis.com', 'serviceusage.googleapis.com', 'sqladmin.googleapis.com', 'storage.googleapis.com')
+            $foundation = [ordered]@{ scopedApis = $requiredApis; billingAccountId = 'ABCDEF-123456-ABCDEF'; stateBucketName = 'racehunter-staging-tfstate'; stateBucketPublicAccessPrevention = $true; stateBucketUniformAccess = $true; stateBucketVersioning = $true; stateBucketRetentionDays = 30; artifactRegistryRepository = 'racehunter'; artifactRegistryLocation = 'us-east1'; artifactRegistryImmutableTags = $true; apiMaxInstances = 2; workerMaxInstances = 1; referenceTargetMaxInstances = 1; monthlyBudgetAmount = 25; budgetCurrency = 'USD'; deletionProtection = $true }
+            $images = @{ api = ('us-east1-docker.pkg.dev/racehunter-staging/racehunter/racehunter-api@sha256:' + ('a' * 64)); worker = ('us-east1-docker.pkg.dev/racehunter-staging/racehunter/racehunter-worker@sha256:' + ('b' * 64)); referenceTarget = ('us-east1-docker.pkg.dev/racehunter-staging/racehunter/racehunter-reference-target@sha256:' + ('c' * 64)) }
+            $inputs = [ordered]@{ billing_account_id = 'ABCDEF-123456-ABCDEF'; monthly_budget_usd = 25; api_max_instance_count = 2; worker_max_instance_count = 1; reference_target_max_instance_count = 1; deletion_protection = $true; manual_target_secret_ids = @() }
+            $planningBinding = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests $images -TerraformInputs $inputs
+            $planning = New-StagingTerraformPlan -Binding $planningBinding -SavedPlanPath '{{Escape(planPath)}}' -TerraformVariablesPath '{{Escape(tfvarsPath)}}' -TerraformDirectory '{{Escape(Path.Combine(Root, "deploy", "terraform"))}}'
+            $binding = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests $images -TerraformInputs $inputs -SavedPlanPath '{{Escape(planPath)}}'
+            $deployment = New-StagingDeploymentPlan -Binding $binding -SavedPlanPath '{{Escape(planPath)}}' -TerraformDirectory '{{Escape(Path.Combine(Root, "deploy", "terraform"))}}'
+            [pscustomobject]@{
+                publicationStage = $publication.requiresApprovalStage
+                imageCount = @($publication.images).Count
+                allDigestBound = @($publication.images | Where-Object { $_.requiredDigestPrefix -notmatch '@sha256:$' }).Count -eq 0
+                planStage = $planning.requiresApprovalStage
+                planTarget = $planning.planArguments[-1]
+                plannedApiImage = $planning.terraformVariables.api_image
+                deployStage = $deployment.requiresApprovalStage
+                bindingHash = $deployment.bindingHash
+                savedPlanHash = $deployment.savedPlanHash
+                actualPlanHash = (Get-FileHash -Algorithm SHA256 -LiteralPath '{{Escape(planPath)}}').Hash.ToLowerInvariant()
+                regeneratesPlan = [bool]$deployment.regeneratesPlan
+                applyTarget = $deployment.applyArguments[-1]
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Equal("PublishImages", json.RootElement.GetProperty("publicationStage").GetString());
+        Assert.Equal(3, json.RootElement.GetProperty("imageCount").GetInt32());
+        Assert.True(json.RootElement.GetProperty("allDigestBound").GetBoolean());
+        Assert.Equal("Plan", json.RootElement.GetProperty("planStage").GetString());
+        Assert.Equal($"-out={Path.GetFullPath(planPath)}", json.RootElement.GetProperty("planTarget").GetString());
+        Assert.EndsWith("@sha256:" + new string('a', 64), json.RootElement.GetProperty("plannedApiImage").GetString(), StringComparison.Ordinal);
+        Assert.Equal("Deploy", json.RootElement.GetProperty("deployStage").GetString());
+        Assert.Matches("^[a-f0-9]{64}$", json.RootElement.GetProperty("bindingHash").GetString());
+        Assert.Equal(json.RootElement.GetProperty("actualPlanHash").GetString(), json.RootElement.GetProperty("savedPlanHash").GetString());
+        Assert.False(json.RootElement.GetProperty("regeneratesPlan").GetBoolean());
+        Assert.Equal(Path.GetFullPath(planPath), json.RootElement.GetProperty("applyTarget").GetString());
+    }
+
+    [Fact]
+    public void Terraform_plan_materialization_rejects_unknown_missing_or_foundation_mismatched_inputs()
+    {
+        Assert.Contains("*.tfvars.json", File.ReadAllText(Path.Combine(Root, ".gitignore")), StringComparison.Ordinal);
+        using var temporary = new TemporaryDirectory();
+        var planPath = Path.Combine(temporary.Path, "reviewed.tfplan");
+        var tfvarsPath = Path.Combine(temporary.Path, "private.tfvars.json");
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            $requiredApis = @('aiplatform.googleapis.com', 'artifactregistry.googleapis.com', 'billingbudgets.googleapis.com', 'cloudresourcemanager.googleapis.com', 'cloudtrace.googleapis.com', 'iam.googleapis.com', 'iamcredentials.googleapis.com', 'logging.googleapis.com', 'monitoring.googleapis.com', 'pubsub.googleapis.com', 'run.googleapis.com', 'secretmanager.googleapis.com', 'serviceusage.googleapis.com', 'sqladmin.googleapis.com', 'storage.googleapis.com')
+            $foundation = [ordered]@{ scopedApis = $requiredApis; billingAccountId = 'ABCDEF-123456-ABCDEF'; stateBucketName = 'racehunter-staging-tfstate'; stateBucketPublicAccessPrevention = $true; stateBucketUniformAccess = $true; stateBucketVersioning = $true; stateBucketRetentionDays = 30; artifactRegistryRepository = 'racehunter'; artifactRegistryLocation = 'us-east1'; artifactRegistryImmutableTags = $true; apiMaxInstances = 2; workerMaxInstances = 1; referenceTargetMaxInstances = 1; monthlyBudgetAmount = 25; budgetCurrency = 'USD'; deletionProtection = $true }
+            $images = @{ api = ('us-east1-docker.pkg.dev/racehunter-staging/racehunter/racehunter-api@sha256:' + ('a' * 64)); worker = ('us-east1-docker.pkg.dev/racehunter-staging/racehunter/racehunter-worker@sha256:' + ('b' * 64)); referenceTarget = ('us-east1-docker.pkg.dev/racehunter-staging/racehunter/racehunter-reference-target@sha256:' + ('c' * 64)) }
+            function New-Inputs { return [ordered]@{ billing_account_id = 'ABCDEF-123456-ABCDEF'; monthly_budget_usd = 25; api_max_instance_count = 2; worker_max_instance_count = 1; reference_target_max_instance_count = 1; deletion_protection = $true; manual_target_secret_ids = @() } }
+            function Invoke-Candidate { param($inputs, $path) $binding = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests $images -TerraformInputs $inputs; New-StagingTerraformPlan -Binding $binding -SavedPlanPath '{{Escape(planPath)}}' -TerraformVariablesPath $path -TerraformDirectory '{{Escape(Path.Combine(Root, "deploy", "terraform"))}}' }
+            $unknown = New-Inputs; $unknown.unreviewed = 'value'
+            $missing = New-Inputs; $missing.Remove('billing_account_id')
+            $mismatch = New-Inputs; $mismatch.api_max_instance_count = 1
+            $optionalBilling = New-Inputs; $optionalBilling.billing_account_id = $null
+            $rejected = 0
+            foreach ($candidate in @($unknown, $missing, $mismatch, $optionalBilling)) {
+                try { Invoke-Candidate $candidate (Join-Path '{{Escape(temporary.Path)}}' "$rejected.tfvars.json") -ErrorAction Stop | Out-Null } catch { $rejected++ }
+            }
+            $valid = Invoke-Candidate (New-Inputs) '{{Escape(tfvarsPath)}}'
+            $materialized = Get-Content -Raw -LiteralPath '{{Escape(tfvarsPath)}}' | ConvertFrom-Json -AsHashtable -Depth 100
+            [pscustomobject]@{
+                rejected = $rejected
+                materialized = Test-Path -LiteralPath '{{Escape(tfvarsPath)}}'
+                propertyCount = @($materialized.Keys).Count
+                project = $materialized.project_id
+                region = $materialized.region
+                billing = $materialized.billing_account_id
+                apiImage = $materialized.api_image
+                deletionProtection = [bool]$materialized.deletion_protection
+                semanticHash = $valid.terraformInputHash
+                bindingHash = $valid.bindingHash
+                fileHash = $valid.terraformVariablesFileHash
+                actualFileHash = (Get-FileHash -Algorithm SHA256 -LiteralPath '{{Escape(tfvarsPath)}}').Hash.ToLowerInvariant()
+                varFileArgument = @($valid.planArguments | Where-Object { $_ -like '-var-file=*' })[0]
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Equal(4, json.RootElement.GetProperty("rejected").GetInt32());
+        Assert.True(json.RootElement.GetProperty("materialized").GetBoolean());
+        Assert.Equal(12, json.RootElement.GetProperty("propertyCount").GetInt32());
+        Assert.Equal("racehunter-staging", json.RootElement.GetProperty("project").GetString());
+        Assert.Equal("us-east1", json.RootElement.GetProperty("region").GetString());
+        Assert.Equal("ABCDEF-123456-ABCDEF", json.RootElement.GetProperty("billing").GetString());
+        Assert.EndsWith("@sha256:" + new string('a', 64), json.RootElement.GetProperty("apiImage").GetString(), StringComparison.Ordinal);
+        Assert.True(json.RootElement.GetProperty("deletionProtection").GetBoolean());
+        Assert.Matches("^[a-f0-9]{64}$", json.RootElement.GetProperty("semanticHash").GetString());
+        Assert.Matches("^[a-f0-9]{64}$", json.RootElement.GetProperty("bindingHash").GetString());
+        Assert.Equal(json.RootElement.GetProperty("semanticHash").GetString(), json.RootElement.GetProperty("fileHash").GetString());
+        Assert.Equal(json.RootElement.GetProperty("actualFileHash").GetString(), json.RootElement.GetProperty("fileHash").GetString());
+        Assert.Equal($"-var-file={Path.GetFullPath(tfvarsPath)}", json.RootElement.GetProperty("varFileArgument").GetString());
+    }
+
+    [Fact]
+    public void Bootstrap_declares_a_two_step_local_to_gcs_migration_without_executing_it()
+    {
+        var bootstrap = Path.Combine(Root, "deploy", "terraform", "bootstrap");
+        var provider = File.ReadAllText(Path.Combine(bootstrap, "providers.tf"));
+        var applicationProvider = File.ReadAllText(Path.Combine(Root, "deploy", "terraform", "providers.tf"));
+        var bootstrapMain = File.ReadAllText(Path.Combine(bootstrap, "main.tf"));
+        var backendTemplate = Path.Combine(bootstrap, "backend.gcs.tf.example");
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            New-StagingBackendMigrationPlan -StateBucketName 'racehunter-staging-tfstate' -BootstrapDirectory '{{Escape(bootstrap)}}' -ApplicationDirectory '{{Escape(Path.Combine(Root, "deploy", "terraform"))}}' | ConvertTo-Json -Compress -Depth 20
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Equal("local", json.RootElement.GetProperty("initialBackend").GetString());
+        Assert.Equal("gcs", json.RootElement.GetProperty("remoteBackend").GetString());
+        Assert.False(json.RootElement.GetProperty("executesMigration").GetBoolean());
+        Assert.Equal(2, json.RootElement.GetProperty("steps").GetArrayLength());
+        Assert.Contains("-migrate-state", json.RootElement.GetProperty("steps")[1].GetProperty("arguments").EnumerateArray().Select(value => value.GetString()));
+        Assert.True(File.Exists(backendTemplate));
+        Assert.Contains("backend \"gcs\"", File.ReadAllText(backendTemplate), StringComparison.Ordinal);
+        Assert.Contains("deploy/terraform/bootstrap/backend.gcs.tf", File.ReadAllText(Path.Combine(Root, ".gitignore")), StringComparison.Ordinal);
+        Assert.Contains("required_version = \"~> 1.14.0\"", provider, StringComparison.Ordinal);
+        Assert.Contains("required_version = \"~> 1.14.0\"", applicationProvider, StringComparison.Ordinal);
+        Assert.Contains("cloudresourcemanager.googleapis.com", bootstrapMain, StringComparison.Ordinal);
+        Assert.Contains("iamcredentials.googleapis.com", bootstrapMain, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Bootstrap_migration_requires_explicit_local_backend_template_materialization_first()
+    {
+        var bootstrap = Path.Combine(Root, "deploy", "terraform", "bootstrap");
+        var generatedBackend = Path.Combine(bootstrap, "backend.gcs.tf");
+        Assert.False(File.Exists(generatedBackend));
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            $descriptor = New-StagingBackendMigrationPlan -StateBucketName 'racehunter-staging-tfstate' -BootstrapDirectory '{{Escape(bootstrap)}}' -ApplicationDirectory '{{Escape(Path.Combine(Root, "deploy", "terraform"))}}'
+            [pscustomobject]@{
+                action = $descriptor.backendMaterialization.action
+                source = $descriptor.backendMaterialization.sourcePath
+                destination = $descriptor.backendMaterialization.destinationPath
+                executesAction = [bool]$descriptor.backendMaterialization.executesAction
+                requiredBefore = $descriptor.backendMaterialization.requiredBeforeStep
+                migrationRequiresDestination = [bool]$descriptor.steps[1].backendMaterializationRequired
+                migrationDestination = $descriptor.steps[1].requiredBackendPath
+                destinationExists = Test-Path -LiteralPath $descriptor.backendMaterialization.destinationPath
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Equal("MaterializeBackendTemplate", json.RootElement.GetProperty("action").GetString());
+        Assert.Equal(Path.Combine(bootstrap, "backend.gcs.tf.example"), json.RootElement.GetProperty("source").GetString());
+        Assert.Equal(Path.GetFullPath(generatedBackend), json.RootElement.GetProperty("destination").GetString());
+        Assert.False(json.RootElement.GetProperty("executesAction").GetBoolean());
+        Assert.Equal("MigrateBootstrapAndConfigureApplicationState", json.RootElement.GetProperty("requiredBefore").GetString());
+        Assert.True(json.RootElement.GetProperty("migrationRequiresDestination").GetBoolean());
+        Assert.Equal(Path.GetFullPath(generatedBackend), json.RootElement.GetProperty("migrationDestination").GetString());
+        Assert.False(json.RootElement.GetProperty("destinationExists").GetBoolean());
+    }
+
+    [Fact]
+    public void Foundation_and_plan_reject_fractional_monthly_budget_units()
+    {
+        var variables = File.ReadAllText(Path.Combine(Root, "deploy", "terraform", "variables.tf"));
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            $foundation = [ordered]@{ scopedApis = @('aiplatform.googleapis.com', 'artifactregistry.googleapis.com', 'billingbudgets.googleapis.com', 'cloudresourcemanager.googleapis.com', 'cloudtrace.googleapis.com', 'iam.googleapis.com', 'iamcredentials.googleapis.com', 'logging.googleapis.com', 'monitoring.googleapis.com', 'pubsub.googleapis.com', 'run.googleapis.com', 'secretmanager.googleapis.com', 'serviceusage.googleapis.com', 'sqladmin.googleapis.com', 'storage.googleapis.com'); billingAccountId = 'ABCDEF-123456-ABCDEF'; stateBucketName = 'racehunter-staging-tfstate'; stateBucketPublicAccessPrevention = $true; stateBucketUniformAccess = $true; stateBucketVersioning = $true; stateBucketRetentionDays = 30; artifactRegistryRepository = 'racehunter'; artifactRegistryLocation = 'us-east1'; artifactRegistryImmutableTags = $true; apiMaxInstances = 2; workerMaxInstances = 1; referenceTargetMaxInstances = 1; monthlyBudgetAmount = 25.5; budgetCurrency = 'USD'; deletionProtection = $true }
+            $binding = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation
+            $accepted = $true
+            try { New-StagingReleaseApproval -Stage Foundation -Binding $binding -ErrorAction Stop | Out-Null } catch { $accepted = $false }
+            [pscustomobject]@{ accepted = $accepted } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.False(json.RootElement.GetProperty("accepted").GetBoolean());
+        Assert.Contains("floor(var.monthly_budget_usd) == var.monthly_budget_usd", variables, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void External_stages_are_default_denied_and_phase_one_contains_no_cloud_execution()
     {
         var entryPointPath = Path.Combine(Root, "deploy", "scripts", "staging-release.ps1");
@@ -192,31 +431,36 @@ public sealed class StagingReleaseContractTests
         File.WriteAllText(planPath, "reviewed-plan", Encoding.UTF8);
         var result = RunPowerShell($$"""
             Import-Module '{{Escape(ModulePath)}}' -Force
-            $api = 'registry/api@sha256:' + ('a' * 64)
-            $worker = 'registry/worker@sha256:' + ('b' * 64)
-            $target = 'registry/target@sha256:' + ('c' * 64)
+            $requiredApis = @('aiplatform.googleapis.com', 'artifactregistry.googleapis.com', 'billingbudgets.googleapis.com', 'cloudresourcemanager.googleapis.com', 'cloudtrace.googleapis.com', 'iam.googleapis.com', 'iamcredentials.googleapis.com', 'logging.googleapis.com', 'monitoring.googleapis.com', 'pubsub.googleapis.com', 'run.googleapis.com', 'secretmanager.googleapis.com', 'serviceusage.googleapis.com', 'sqladmin.googleapis.com', 'storage.googleapis.com')
+            $foundation = [ordered]@{ scopedApis = $requiredApis; billingAccountId = 'ABCDEF-123456-ABCDEF'; stateBucketName = 'racehunter-staging-tfstate'; stateBucketPublicAccessPrevention = $true; stateBucketUniformAccess = $true; stateBucketVersioning = $true; stateBucketRetentionDays = 30; artifactRegistryRepository = 'racehunter'; artifactRegistryLocation = 'us-east1'; artifactRegistryImmutableTags = $true; apiMaxInstances = 2; workerMaxInstances = 1; referenceTargetMaxInstances = 1; monthlyBudgetAmount = 25; budgetCurrency = 'USD'; deletionProtection = $true }
+            $inputs = [ordered]@{ billing_account_id = 'ABCDEF-123456-ABCDEF'; monthly_budget_usd = 25; api_max_instance_count = 2; worker_max_instance_count = 1; reference_target_max_instance_count = 1; deletion_protection = $true; manual_target_secret_ids = @() }
+            $api = 'us-east1-docker.pkg.dev/racehunter-staging/racehunter/racehunter-api@sha256:' + ('a' * 64)
+            $worker = 'us-east1-docker.pkg.dev/racehunter-staging/racehunter/racehunter-worker@sha256:' + ('b' * 64)
+            $target = 'us-east1-docker.pkg.dev/racehunter-staging/racehunter/racehunter-reference-target@sha256:' + ('c' * 64)
             $completeImages = @{ api = $api; worker = $worker; referenceTarget = $target }
+            $wrongRepositoryImages = @{ api = ('us-east1-docker.pkg.dev/racehunter-staging/other/racehunter-api@sha256:' + ('a' * 64)); worker = ('us-east1-docker.pkg.dev/racehunter-staging/other/racehunter-worker@sha256:' + ('b' * 64)); referenceTarget = ('us-east1-docker.pkg.dev/racehunter-staging/other/racehunter-reference-target@sha256:' + ('c' * 64)) }
             $cases = @(
-                (New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1'),
-                (New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -ImageDigests @{ api = $api; worker = $worker }),
-                (New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -ImageDigests $completeImages -SavedPlanPath '{{Escape(planPath)}}'),
-                (New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -ImageDigests $completeImages -TerraformInputs @{ worker_max_instances = 1 })
+                (New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation),
+                (New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests @{ api = $api; worker = $worker }),
+                (New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests $completeImages -SavedPlanPath '{{Escape(planPath)}}'),
+                (New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests $completeImages -TerraformInputs $inputs),
+                (New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests $wrongRepositoryImages -TerraformInputs $inputs -SavedPlanPath '{{Escape(planPath)}}')
             )
-            $tamperedHash = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -ImageDigests $completeImages -TerraformInputs @{ worker_max_instances = 1 } -SavedPlanPath '{{Escape(planPath)}}'
+            $tamperedHash = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests $completeImages -TerraformInputs $inputs -SavedPlanPath '{{Escape(planPath)}}'
             $tamperedHash.terraformInputHash = ''
             $cases += $tamperedHash
             $rejected = 0
             foreach ($binding in $cases) {
                 try { New-StagingReleaseApproval -Stage 'Deploy' -Binding $binding -ErrorAction Stop | Out-Null } catch { $rejected++ }
             }
-            $complete = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -ImageDigests $completeImages -TerraformInputs @{ worker_max_instances = 1 } -SavedPlanPath '{{Escape(planPath)}}'
+            $complete = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests $completeImages -TerraformInputs $inputs -SavedPlanPath '{{Escape(planPath)}}'
             $approval = New-StagingReleaseApproval -Stage 'Deploy' -Binding $complete
             [pscustomobject]@{ rejected = $rejected; completeAccepted = Test-StagingReleaseApproval -Stage 'Deploy' -Binding $complete -Approval $approval } | ConvertTo-Json -Compress
             """);
 
         Assert.Equal(0, result.ExitCode);
         using var json = JsonDocument.Parse(result.Output);
-        Assert.Equal(5, json.RootElement.GetProperty("rejected").GetInt32());
+        Assert.Equal(6, json.RootElement.GetProperty("rejected").GetInt32());
         Assert.True(json.RootElement.GetProperty("completeAccepted").GetBoolean());
     }
 
@@ -226,25 +470,33 @@ public sealed class StagingReleaseContractTests
         var result = RunPowerShell($$"""
             Import-Module '{{Escape(ModulePath)}}' -Force
             $complete = [ordered]@{
-                scopedApis = @('artifactregistry.googleapis.com', 'run.googleapis.com', 'sqladmin.googleapis.com')
+                scopedApis = @('aiplatform.googleapis.com', 'artifactregistry.googleapis.com', 'billingbudgets.googleapis.com', 'cloudresourcemanager.googleapis.com', 'cloudtrace.googleapis.com', 'iam.googleapis.com', 'iamcredentials.googleapis.com', 'logging.googleapis.com', 'monitoring.googleapis.com', 'pubsub.googleapis.com', 'run.googleapis.com', 'secretmanager.googleapis.com', 'serviceusage.googleapis.com', 'sqladmin.googleapis.com', 'storage.googleapis.com')
+                billingAccountId = 'ABCDEF-123456-ABCDEF'
                 stateBucketName = 'racehunter-staging-tfstate'
                 stateBucketPublicAccessPrevention = $true
+                stateBucketUniformAccess = $true
                 stateBucketVersioning = $true
+                stateBucketRetentionDays = 30
                 artifactRegistryRepository = 'racehunter'
                 artifactRegistryLocation = 'us-east1'
+                artifactRegistryImmutableTags = $true
                 apiMaxInstances = 2
                 workerMaxInstances = 1
                 referenceTargetMaxInstances = 1
                 monthlyBudgetAmount = 25
                 budgetCurrency = 'USD'
+                deletionProtection = $true
             }
             function New-Binding { param($foundation) New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation }
             $empty = New-Binding @{}
             $missingApis = [ordered]@{} + $complete; $missingApis.scopedApis = @()
             $unprotectedBucket = [ordered]@{} + $complete; $unprotectedBucket.stateBucketPublicAccessPrevention = $false
+            $nonUniformBucket = [ordered]@{} + $complete; $nonUniformBucket.stateBucketUniformAccess = $false
+            $missingRetention = [ordered]@{} + $complete; $missingRetention.Remove('stateBucketRetentionDays')
+            $mutableRegistry = [ordered]@{} + $complete; $mutableRegistry.artifactRegistryImmutableTags = $false
             $wrongRegistryRegion = [ordered]@{} + $complete; $wrongRegistryRegion.artifactRegistryLocation = 'us-central1'
             $missingCeiling = [ordered]@{} + $complete; $missingCeiling.Remove('monthlyBudgetAmount')
-            $incomplete = @($empty, (New-Binding $missingApis), (New-Binding $unprotectedBucket), (New-Binding $wrongRegistryRegion), (New-Binding $missingCeiling))
+            $incomplete = @($empty, (New-Binding $missingApis), (New-Binding $unprotectedBucket), (New-Binding $nonUniformBucket), (New-Binding $missingRetention), (New-Binding $mutableRegistry), (New-Binding $wrongRegistryRegion), (New-Binding $missingCeiling))
             $rejected = 0
             foreach ($binding in $incomplete) {
                 foreach ($stage in @('Foundation', 'PublishImages')) {
@@ -264,7 +516,7 @@ public sealed class StagingReleaseContractTests
 
         Assert.Equal(0, result.ExitCode);
         using var json = JsonDocument.Parse(result.Output);
-        Assert.Equal(10, json.RootElement.GetProperty("rejected").GetInt32());
+        Assert.Equal(16, json.RootElement.GetProperty("rejected").GetInt32());
         Assert.True(json.RootElement.GetProperty("foundationAccepted").GetBoolean());
         Assert.True(json.RootElement.GetProperty("publishAccepted").GetBoolean());
         Assert.Matches("^[a-f0-9]{64}$", json.RootElement.GetProperty("foundationHash").GetString());
@@ -279,16 +531,18 @@ public sealed class StagingReleaseContractTests
         File.WriteAllText(planPath, "reviewed-plan", Encoding.UTF8);
         var result = RunPowerShell($$"""
             Import-Module '{{Escape(ModulePath)}}' -Force
-            $images = @{ api = ('registry/api@sha256:' + ('a' * 64)); worker = ('registry/worker@sha256:' + ('b' * 64)); referenceTarget = ('registry/target@sha256:' + ('c' * 64)) }
-            $foundation = [ordered]@{ scopedApis = @('artifactregistry.googleapis.com'); stateBucketName = 'racehunter-staging-tfstate'; stateBucketPublicAccessPrevention = $true; stateBucketVersioning = $true; artifactRegistryRepository = 'racehunter'; artifactRegistryLocation = 'us-east1'; apiMaxInstances = 2; workerMaxInstances = 1; referenceTargetMaxInstances = 1; monthlyBudgetAmount = 25; budgetCurrency = 'USD' }
-            $old = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests $images -TerraformInputs @{ worker_max_instances = 1 } -SavedPlanPath '{{Escape(planPath)}}'
+            $images = @{ api = ('us-east1-docker.pkg.dev/racehunter-staging/racehunter/racehunter-api@sha256:' + ('a' * 64)); worker = ('us-east1-docker.pkg.dev/racehunter-staging/racehunter/racehunter-worker@sha256:' + ('b' * 64)); referenceTarget = ('us-east1-docker.pkg.dev/racehunter-staging/racehunter/racehunter-reference-target@sha256:' + ('c' * 64)) }
+            $foundation = [ordered]@{ scopedApis = @('aiplatform.googleapis.com', 'artifactregistry.googleapis.com', 'billingbudgets.googleapis.com', 'cloudresourcemanager.googleapis.com', 'cloudtrace.googleapis.com', 'iam.googleapis.com', 'iamcredentials.googleapis.com', 'logging.googleapis.com', 'monitoring.googleapis.com', 'pubsub.googleapis.com', 'run.googleapis.com', 'secretmanager.googleapis.com', 'serviceusage.googleapis.com', 'sqladmin.googleapis.com', 'storage.googleapis.com'); billingAccountId = 'ABCDEF-123456-ABCDEF'; stateBucketName = 'racehunter-staging-tfstate'; stateBucketPublicAccessPrevention = $true; stateBucketUniformAccess = $true; stateBucketVersioning = $true; stateBucketRetentionDays = 30; artifactRegistryRepository = 'racehunter'; artifactRegistryLocation = 'us-east1'; artifactRegistryImmutableTags = $true; apiMaxInstances = 2; workerMaxInstances = 1; referenceTargetMaxInstances = 1; monthlyBudgetAmount = 25; budgetCurrency = 'USD'; deletionProtection = $true }
+            $inputs = [ordered]@{ billing_account_id = 'ABCDEF-123456-ABCDEF'; monthly_budget_usd = 25; api_max_instance_count = 2; worker_max_instance_count = 1; reference_target_max_instance_count = 1; deletion_protection = $true; manual_target_secret_ids = @() }
+            $old = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests $images -TerraformInputs $inputs -SavedPlanPath '{{Escape(planPath)}}'
             $state = Initialize-StagingReleaseState -Path '{{Escape(statePath)}}' -Binding $old
             foreach ($stage in @('Preflight', 'Foundation', 'Deploy')) {
                 $approval = New-StagingReleaseApproval -Stage $stage -Binding $old
                 Add-StagingReleaseApproval -Path '{{Escape(statePath)}}' -Approval $approval | Out-Null
             }
             Add-StagingReleaseEvidence -Path '{{Escape(statePath)}}' -Evidence @{ id = 'preflight-1'; classification = 'cloud-read-only' } | Out-Null
-            $changed = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests $images -TerraformInputs @{ worker_max_instances = 2 } -SavedPlanPath '{{Escape(planPath)}}'
+            $changedInputs = [ordered]@{} + $inputs; $changedInputs.manual_target_secret_ids = @('approved-target-auth')
+            $changed = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1' -FoundationInputs $foundation -ImageDigests $images -TerraformInputs $changedInputs -SavedPlanPath '{{Escape(planPath)}}'
             Update-StagingReleaseBinding -Path '{{Escape(statePath)}}' -Binding $changed -ChangedAtStage 'Foundation' | Out-Null
             $resumed = Get-StagingReleaseState -Path '{{Escape(statePath)}}'
             $resumeRejected = $false

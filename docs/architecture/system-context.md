@@ -31,7 +31,15 @@ flowchart LR
 - Manual targets are absent from the public UI and hidden behind a local/admin bearer credential. Configuration requires ownership acknowledgement, exact host allowlisting, HTTPS, public DNS answers, allowlisted paths, sensitive JSON paths, and a Secret Manager version reference. Raw credentials are rejected.
 - Automatic redirects are disabled. Every destination and redirect is revalidated; loopback, private, link-local, metadata, multicast, and mixed public/private DNS answers are blocked.
 - Public hunts remain capped at 10 actors, 40 requests, 5 model calls, and 90 seconds. Authenticated experiments support 100 logical actors while global, target, and experiment semaphores independently cap active work.
-- API and target have a configurable hard maximum instance count (default 2); the worker is fixed at one instance and one inbound request so process semaphores remain deployment-global. Cloud SQL uses the smallest staging tier with deletion protection, and an optional billing-budget alert reports 50%, 90%, and 100% thresholds.
+- API and target have configurable hard maximum instance counts of at most two; the worker is fixed at one instance and one inbound request so process semaphores remain deployment-global. Both isolated Cloud SQL instances use the smallest staging tier with deletion protection, and a mandatory billing-budget alert reports 50%, 90%, and 100% thresholds.
+
+## Provisioning boundaries
+
+The staging infrastructure has two Terraform roots. The protected foundation root enables the exact required Google APIs and creates the private versioned state bucket and immutable Artifact Registry repository. The application root consumes repository-qualified immutable application digests and owns Cloud Run, Pub/Sub/DLQ, two credential-isolated Cloud SQL instances, Secret Manager references, workload IAM, and the mandatory budget. Foundation and application state use distinct GCS prefixes.
+
+The transition from local bootstrap state to GCS is an explicit operator step after a fresh Foundation approval: materialize the gitignored backend template, execute the descriptor's exact `init -migrate-state` arguments for bootstrap, then configure the application backend with its exact `init -reconfigure` arguments. Application planning materializes the exact reviewed inputs into a gitignored `.tfvars.json`, hashes those bytes, saves the plan, and binds deployment to that saved-plan hash. Any drift requires a new plan and approval.
+
+These are locally validated contracts. No remote bucket, repository, IAM policy, database, revision, or audience has yet been observed by this phase, and collector-image digest resolution is deferred until explicit network authorization.
 
 ## Correlation path
 

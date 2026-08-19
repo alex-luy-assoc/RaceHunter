@@ -1,34 +1,9 @@
-locals {
-  services = toset([
-    "aiplatform.googleapis.com",
-    "artifactregistry.googleapis.com",
-    "billingbudgets.googleapis.com",
-    "cloudtrace.googleapis.com",
-    "logging.googleapis.com",
-    "monitoring.googleapis.com",
-    "pubsub.googleapis.com",
-    "run.googleapis.com",
-    "secretmanager.googleapis.com",
-    "sqladmin.googleapis.com"
-  ])
+resource "random_password" "primary_database" {
+  length  = 32
+  special = false
 }
 
-resource "google_project_service" "required" {
-  for_each           = local.services
-  project            = var.project_id
-  service            = each.value
-  disable_on_destroy = false
-}
-
-resource "google_artifact_registry_repository" "images" {
-  location      = var.region
-  repository_id = "racehunter"
-  description   = "Immutable RaceHunter application images"
-  format        = "DOCKER"
-  depends_on    = [google_project_service.required]
-}
-
-resource "random_password" "database" {
+resource "random_password" "target_database" {
   length  = 32
   special = false
 }
@@ -42,14 +17,15 @@ resource "google_sql_database_instance" "main" {
   name                = "racehunter-staging"
   region              = var.region
   database_version    = "POSTGRES_17"
-  deletion_protection = true
+  deletion_protection = var.deletion_protection
 
   settings {
-    tier              = "db-f1-micro"
-    availability_type = "ZONAL"
-    disk_type         = "PD_SSD"
-    disk_size         = 10
-    disk_autoresize   = true
+    tier                  = "db-f1-micro"
+    availability_type     = "ZONAL"
+    disk_type             = "PD_SSD"
+    disk_size             = 10
+    disk_autoresize       = true
+    disk_autoresize_limit = 20
     backup_configuration {
       enabled                        = true
       point_in_time_recovery_enabled = true
@@ -59,8 +35,30 @@ resource "google_sql_database_instance" "main" {
       ipv4_enabled = true
     }
   }
+}
 
-  depends_on = [google_project_service.required]
+resource "google_sql_database_instance" "target" {
+  name                = "racehunter-target-staging"
+  region              = var.region
+  database_version    = "POSTGRES_17"
+  deletion_protection = var.deletion_protection
+
+  settings {
+    tier                  = "db-f1-micro"
+    availability_type     = "ZONAL"
+    disk_type             = "PD_SSD"
+    disk_size             = 10
+    disk_autoresize       = true
+    disk_autoresize_limit = 20
+    backup_configuration {
+      enabled                        = true
+      point_in_time_recovery_enabled = true
+    }
+    ip_configuration {
+      # A separate instance makes target credentials unusable against primary data.
+      ipv4_enabled = true
+    }
+  }
 }
 
 resource "google_sql_database" "racehunter" {
@@ -70,13 +68,19 @@ resource "google_sql_database" "racehunter" {
 
 resource "google_sql_database" "reference_target" {
   name     = "racehunter_target"
-  instance = google_sql_database_instance.main.name
+  instance = google_sql_database_instance.target.name
 }
 
 resource "google_sql_user" "racehunter" {
   name     = "racehunter"
   instance = google_sql_database_instance.main.name
-  password = random_password.database.result
+  password = random_password.primary_database.result
+}
+
+resource "google_sql_user" "reference_target" {
+  name     = "racehunter_target"
+  instance = google_sql_database_instance.target.name
+  password = random_password.target_database.result
 }
 
 resource "google_secret_manager_secret" "racehunter_database" {
@@ -84,12 +88,11 @@ resource "google_secret_manager_secret" "racehunter_database" {
   replication {
     auto {}
   }
-  depends_on = [google_project_service.required]
 }
 
 resource "google_secret_manager_secret_version" "racehunter_database" {
   secret      = google_secret_manager_secret.racehunter_database.id
-  secret_data = "Host=/cloudsql/${google_sql_database_instance.main.connection_name};Database=${google_sql_database.racehunter.name};Username=${google_sql_user.racehunter.name};Password=${random_password.database.result};SSL Mode=Disable"
+  secret_data = "Host=/cloudsql/${google_sql_database_instance.main.connection_name};Database=${google_sql_database.racehunter.name};Username=${google_sql_user.racehunter.name};Password=${random_password.primary_database.result};SSL Mode=Disable"
 }
 
 resource "google_secret_manager_secret" "target_database" {
@@ -97,12 +100,11 @@ resource "google_secret_manager_secret" "target_database" {
   replication {
     auto {}
   }
-  depends_on = [google_project_service.required]
 }
 
 resource "google_secret_manager_secret_version" "target_database" {
   secret      = google_secret_manager_secret.target_database.id
-  secret_data = "Host=/cloudsql/${google_sql_database_instance.main.connection_name};Database=${google_sql_database.reference_target.name};Username=${google_sql_user.racehunter.name};Password=${random_password.database.result};SSL Mode=Disable"
+  secret_data = "Host=/cloudsql/${google_sql_database_instance.target.connection_name};Database=${google_sql_database.reference_target.name};Username=${google_sql_user.reference_target.name};Password=${random_password.target_database.result};SSL Mode=Disable"
 }
 
 resource "google_secret_manager_secret" "demo_control" {
@@ -110,7 +112,6 @@ resource "google_secret_manager_secret" "demo_control" {
   replication {
     auto {}
   }
-  depends_on = [google_project_service.required]
 }
 
 resource "google_secret_manager_secret_version" "demo_control" {
@@ -123,7 +124,6 @@ resource "google_secret_manager_secret" "otel_collector_config" {
   replication {
     auto {}
   }
-  depends_on = [google_project_service.required]
 }
 
 resource "google_secret_manager_secret_version" "otel_collector_config" {
@@ -269,11 +269,11 @@ resource "google_cloud_run_v2_service" "api" {
   name                = "racehunter-api"
   location            = var.region
   ingress             = "INGRESS_TRAFFIC_ALL"
-  deletion_protection = true
+  deletion_protection = var.deletion_protection
 
   template {
     service_account = google_service_account.api.email
-    scaling { max_instance_count = var.max_instance_count }
+    scaling { max_instance_count = var.api_max_instance_count }
     max_instance_request_concurrency = 80
     volumes {
       name = "cloudsql"
@@ -358,7 +358,9 @@ resource "google_cloud_run_v2_service" "api" {
       }
     }
     containers {
-      name    = "otel-collector"
+      name = "otel-collector"
+      # Digest pinning is explicitly deferred until an approved collector digest is supplied;
+      # credential-free Phase 2 does not query a registry or invent immutable identity evidence.
       image   = "us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.156.0"
       command = ["/otelcol-google"]
       args    = ["--config=/etc/otelcol-google/config.yaml"]
@@ -376,7 +378,7 @@ resource "google_cloud_run_v2_service" "api" {
     }
   }
 
-  depends_on = [google_project_service.required, google_secret_manager_secret_iam_member.api_database, google_secret_manager_secret_iam_member.otel_collector_config, google_project_iam_member.telemetry_writers]
+  depends_on = [google_secret_manager_secret_iam_member.api_database, google_secret_manager_secret_iam_member.otel_collector_config, google_project_iam_member.telemetry_writers]
 }
 
 resource "google_cloud_run_v2_service" "worker" {
@@ -385,13 +387,13 @@ resource "google_cloud_run_v2_service" "worker" {
   # The run.app endpoint is internet-routable so Cloud Run service-to-service calls work
   # without an unconfigured VPC route; run.invoker IAM still makes the service private.
   ingress             = "INGRESS_TRAFFIC_ALL"
-  deletion_protection = true
+  deletion_protection = var.deletion_protection
 
   template {
     service_account = google_service_account.worker.email
     # One worker owns the process-wide global and target limiters.
     scaling {
-      max_instance_count = 1
+      max_instance_count = var.worker_max_instance_count
     }
     max_instance_request_concurrency = 1
     volumes {
@@ -505,7 +507,6 @@ resource "google_cloud_run_v2_service" "worker" {
   }
 
   depends_on = [
-    google_project_service.required,
     google_secret_manager_secret_iam_member.worker_database,
     google_secret_manager_secret_iam_member.worker_demo_control,
     google_secret_manager_secret_iam_member.otel_collector_config,
@@ -518,15 +519,15 @@ resource "google_cloud_run_v2_service" "reference_target" {
   location = var.region
   # Reachable through run.app, but invocation remains service-account scoped below.
   ingress             = "INGRESS_TRAFFIC_ALL"
-  deletion_protection = true
+  deletion_protection = var.deletion_protection
 
   template {
     service_account = google_service_account.target.email
-    scaling { max_instance_count = var.max_instance_count }
+    scaling { max_instance_count = var.reference_target_max_instance_count }
     max_instance_request_concurrency = 20
     volumes {
       name = "cloudsql"
-      cloud_sql_instance { instances = [google_sql_database_instance.main.connection_name] }
+      cloud_sql_instance { instances = [google_sql_database_instance.target.connection_name] }
     }
     volumes {
       name = "otel-config"
@@ -595,7 +596,6 @@ resource "google_cloud_run_v2_service" "reference_target" {
   }
 
   depends_on = [
-    google_project_service.required,
     google_secret_manager_secret_iam_member.target_database,
     google_secret_manager_secret_iam_member.target_demo_control,
     google_secret_manager_secret_iam_member.otel_collector_config,
@@ -636,8 +636,7 @@ resource "google_cloud_run_v2_service_iam_member" "worker_target" {
 }
 
 resource "google_pubsub_topic" "work" {
-  name       = "racehunter-work"
-  depends_on = [google_project_service.required]
+  name = "racehunter-work"
 }
 
 resource "google_pubsub_topic_iam_member" "api_publisher" {
@@ -678,8 +677,7 @@ resource "google_service_account_iam_member" "pubsub_push_token_creator" {
 }
 
 resource "google_pubsub_topic" "dead_letter" {
-  name       = "racehunter-work-dead-letter"
-  depends_on = [google_project_service.required]
+  name = "racehunter-work-dead-letter"
 }
 
 resource "google_pubsub_topic_iam_member" "worker_dead_letter_publisher" {
@@ -701,7 +699,6 @@ resource "google_pubsub_subscription_iam_member" "pubsub_service_forward_subscri
 }
 
 resource "google_billing_budget" "staging" {
-  count           = var.billing_account_id == null ? 0 : 1
   billing_account = var.billing_account_id
   display_name    = "RaceHunter staging monthly budget"
   amount {
@@ -714,5 +711,4 @@ resource "google_billing_budget" "staging" {
   threshold_rules { threshold_percent = 0.5 }
   threshold_rules { threshold_percent = 0.9 }
   threshold_rules { threshold_percent = 1.0 }
-  depends_on = [google_project_service.required]
 }

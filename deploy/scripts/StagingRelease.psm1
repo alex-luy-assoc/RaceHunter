@@ -18,6 +18,32 @@ $script:StateStages = @(
 )
 $script:ApprovalStages = @('Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo')
 $script:EvidenceClassifications = @('local', 'local-emulated', 'cloud-read-only', 'deployed-staging', 'live-gemini', 'timed-staging-demo')
+$script:RequiredFoundationApis = @(
+    'aiplatform.googleapis.com',
+    'artifactregistry.googleapis.com',
+    'billingbudgets.googleapis.com',
+    'cloudresourcemanager.googleapis.com',
+    'cloudtrace.googleapis.com',
+    'iam.googleapis.com',
+    'iamcredentials.googleapis.com',
+    'logging.googleapis.com',
+    'monitoring.googleapis.com',
+    'pubsub.googleapis.com',
+    'run.googleapis.com',
+    'secretmanager.googleapis.com',
+    'serviceusage.googleapis.com',
+    'sqladmin.googleapis.com',
+    'storage.googleapis.com'
+)
+$script:TerraformApplicationInputNames = @(
+    'api_max_instance_count',
+    'billing_account_id',
+    'deletion_protection',
+    'manual_target_secret_ids',
+    'monthly_budget_usd',
+    'reference_target_max_instance_count',
+    'worker_max_instance_count'
+)
 
 function Get-StagingObjectValue {
     param(
@@ -108,21 +134,85 @@ function Assert-StagingReleaseStage {
     }
 }
 
+function Get-StagingTerraformVariables {
+    param([Parameter(Mandatory)] [object] $Binding)
+
+    $foundation = Get-StagingObjectValue -InputObject $Binding -Name 'foundationInputs'
+    $inputs = Get-StagingObjectValue -InputObject $Binding -Name 'terraformInputs'
+    $images = Get-StagingObjectValue -InputObject $Binding -Name 'imageDigests'
+    $inputNames = @(Get-StagingObjectPropertyNames -InputObject $inputs | Sort-Object -CaseSensitive)
+    if (($inputNames -join ',') -cne (@($script:TerraformApplicationInputNames | Sort-Object -CaseSensitive) -join ',')) {
+        throw 'Terraform inputs must contain exactly the reviewed application input schema.'
+    }
+
+    $billingAccount = Get-StagingObjectValue -InputObject $inputs -Name 'billing_account_id'
+    $foundationBillingAccount = Get-StagingObjectValue -InputObject $foundation -Name 'billingAccountId'
+    if ($billingAccount -isnot [string] -or $billingAccount -notmatch '^[A-Z0-9]{6}-[A-Z0-9]{6}-[A-Z0-9]{6}$' -or $billingAccount -cne $foundationBillingAccount) {
+        throw 'billing_account_id must be present and match the approved foundation billing account.'
+    }
+
+    $matches = [ordered]@{
+        monthly_budget_usd = 'monthlyBudgetAmount'
+        api_max_instance_count = 'apiMaxInstances'
+        worker_max_instance_count = 'workerMaxInstances'
+        reference_target_max_instance_count = 'referenceTargetMaxInstances'
+    }
+    foreach ($inputName in $matches.Keys) {
+        $inputValue = Get-StagingObjectValue -InputObject $inputs -Name $inputName
+        $foundationValue = Get-StagingObjectValue -InputObject $foundation -Name $matches[$inputName]
+        if ($inputValue -is [bool] -or $inputValue -isnot [ValueType] -or [decimal]$inputValue -ne [decimal]$foundationValue) {
+            throw "Terraform input '$inputName' does not match its approved foundation value."
+        }
+    }
+
+    $deletionProtection = Get-StagingObjectValue -InputObject $inputs -Name 'deletion_protection'
+    if ($deletionProtection -isnot [bool] -or $deletionProtection -cne $true -or $deletionProtection -cne (Get-StagingObjectValue -InputObject $foundation -Name 'deletionProtection')) {
+        throw 'deletion_protection must remain true and match the approved foundation.'
+    }
+
+    $manualTargetSecretIds = Get-StagingObjectValue -InputObject $inputs -Name 'manual_target_secret_ids'
+    if ($manualTargetSecretIds -is [string] -or $manualTargetSecretIds -is [System.Collections.IDictionary] -or $manualTargetSecretIds -isnot [System.Collections.IEnumerable]) {
+        throw 'manual_target_secret_ids must be an array of secret resource IDs.'
+    }
+    $secretIds = @($manualTargetSecretIds)
+    if (@($secretIds | Sort-Object -Unique).Count -ne $secretIds.Count) { throw 'manual_target_secret_ids must not contain duplicates.' }
+    foreach ($secretId in $secretIds) {
+        if ($secretId -isnot [string] -or $secretId -notmatch '^[A-Za-z0-9_-]{1,255}$') { throw 'manual_target_secret_ids contains an invalid secret resource ID.' }
+    }
+
+    return [ordered]@{
+        project_id = Get-StagingObjectValue -InputObject $Binding -Name 'projectId'
+        region = Get-StagingObjectValue -InputObject $Binding -Name 'region'
+        billing_account_id = $billingAccount
+        api_image = Get-StagingObjectValue -InputObject $images -Name 'api'
+        worker_image = Get-StagingObjectValue -InputObject $images -Name 'worker'
+        reference_target_image = Get-StagingObjectValue -InputObject $images -Name 'referenceTarget'
+        monthly_budget_usd = Get-StagingObjectValue -InputObject $inputs -Name 'monthly_budget_usd'
+        api_max_instance_count = Get-StagingObjectValue -InputObject $inputs -Name 'api_max_instance_count'
+        worker_max_instance_count = Get-StagingObjectValue -InputObject $inputs -Name 'worker_max_instance_count'
+        reference_target_max_instance_count = Get-StagingObjectValue -InputObject $inputs -Name 'reference_target_max_instance_count'
+        deletion_protection = $deletionProtection
+        manual_target_secret_ids = @($secretIds)
+    }
+}
+
 function Test-StagingReleaseBindingForStage {
     param(
         [Parameter(Mandatory)] [string] $Stage,
         [Parameter(Mandatory)] [object] $Binding
     )
 
-    if ($Stage -in @('Foundation', 'PublishImages')) {
+    if ($Stage -in @('Foundation', 'PublishImages', 'Plan', 'Deploy')) {
         $foundation = Get-StagingObjectValue -InputObject $Binding -Name 'foundationInputs'
         if ($null -eq $foundation) { return $false }
         try { $names = @(Get-StagingObjectPropertyNames -InputObject $foundation | Sort-Object -CaseSensitive) }
         catch { return $false }
         $requiredNames = @(
-            'apiMaxInstances', 'artifactRegistryLocation', 'artifactRegistryRepository', 'budgetCurrency',
+            'apiMaxInstances', 'artifactRegistryImmutableTags', 'artifactRegistryLocation', 'artifactRegistryRepository', 'billingAccountId', 'budgetCurrency',
+            'deletionProtection',
             'monthlyBudgetAmount', 'referenceTargetMaxInstances', 'scopedApis', 'stateBucketName',
-            'stateBucketPublicAccessPrevention', 'stateBucketVersioning', 'workerMaxInstances'
+            'stateBucketPublicAccessPrevention', 'stateBucketRetentionDays', 'stateBucketUniformAccess',
+            'stateBucketVersioning', 'workerMaxInstances'
         ) | Sort-Object -CaseSensitive
         if (($names -join ',') -cne ($requiredNames -join ',')) { return $false }
 
@@ -133,17 +223,28 @@ function Test-StagingReleaseBindingForStage {
         foreach ($api in $apiValues) {
             if ($api -isnot [string] -or $api -notmatch '^[a-z][a-z0-9.-]*\.googleapis\.com$') { return $false }
         }
+        if ((@($apiValues | Sort-Object) -join ',') -cne (@($script:RequiredFoundationApis | Sort-Object) -join ',')) { return $false }
 
         $bucketName = Get-StagingObjectValue -InputObject $foundation -Name 'stateBucketName'
         $repository = Get-StagingObjectValue -InputObject $foundation -Name 'artifactRegistryRepository'
         $location = Get-StagingObjectValue -InputObject $foundation -Name 'artifactRegistryLocation'
         $publicAccessPrevention = Get-StagingObjectValue -InputObject $foundation -Name 'stateBucketPublicAccessPrevention'
+        $uniformAccess = Get-StagingObjectValue -InputObject $foundation -Name 'stateBucketUniformAccess'
         $versioning = Get-StagingObjectValue -InputObject $foundation -Name 'stateBucketVersioning'
+        $retentionDays = Get-StagingObjectValue -InputObject $foundation -Name 'stateBucketRetentionDays'
+        $immutableTags = Get-StagingObjectValue -InputObject $foundation -Name 'artifactRegistryImmutableTags'
+        $billingAccountId = Get-StagingObjectValue -InputObject $foundation -Name 'billingAccountId'
+        $deletionProtection = Get-StagingObjectValue -InputObject $foundation -Name 'deletionProtection'
         if ($bucketName -isnot [string] -or $bucketName -notmatch '^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$') { return $false }
         if ($repository -isnot [string] -or $repository -notmatch '^[a-z][a-z0-9-]{2,62}$') { return $false }
         if ($location -isnot [string] -or $location -cne (Get-StagingObjectValue -InputObject $Binding -Name 'region')) { return $false }
         if ($publicAccessPrevention -isnot [bool] -or $publicAccessPrevention -cne $true) { return $false }
+        if ($uniformAccess -isnot [bool] -or $uniformAccess -cne $true) { return $false }
         if ($versioning -isnot [bool] -or $versioning -cne $true) { return $false }
+        if ($retentionDays -is [bool] -or $retentionDays -isnot [ValueType] -or [decimal]$retentionDays -ne [Math]::Truncate([decimal]$retentionDays) -or [int64]$retentionDays -lt 7 -or [int64]$retentionDays -gt 365) { return $false }
+        if ($immutableTags -isnot [bool] -or $immutableTags -cne $true) { return $false }
+        if ($billingAccountId -isnot [string] -or $billingAccountId -notmatch '^[A-Z0-9]{6}-[A-Z0-9]{6}-[A-Z0-9]{6}$') { return $false }
+        if ($deletionProtection -isnot [bool] -or $deletionProtection -cne $true) { return $false }
 
         $apiMaximum = Get-StagingObjectValue -InputObject $foundation -Name 'apiMaxInstances'
         $workerMaximum = Get-StagingObjectValue -InputObject $foundation -Name 'workerMaxInstances'
@@ -153,22 +254,22 @@ function Test-StagingReleaseBindingForStage {
         foreach ($maximum in @($apiMaximum, $workerMaximum, $targetMaximum)) {
             if ($maximum -is [bool] -or $maximum -isnot [ValueType] -or [decimal]$maximum -ne [Math]::Truncate([decimal]$maximum)) { return $false }
         }
-        if ([int64]$apiMaximum -lt 1 -or [int64]$apiMaximum -gt 10) { return $false }
+        if ([int64]$apiMaximum -lt 1 -or [int64]$apiMaximum -gt 2) { return $false }
         if ([int64]$workerMaximum -ne 1) { return $false }
-        if ([int64]$targetMaximum -lt 1 -or [int64]$targetMaximum -gt 10) { return $false }
-        if ($budget -is [bool] -or $budget -isnot [ValueType] -or [decimal]$budget -le 0 -or [decimal]$budget -gt 1000) { return $false }
+        if ([int64]$targetMaximum -lt 1 -or [int64]$targetMaximum -gt 2) { return $false }
+        if ($budget -is [bool] -or $budget -isnot [ValueType] -or [decimal]$budget -ne [Math]::Truncate([decimal]$budget) -or [decimal]$budget -le 0 -or [decimal]$budget -gt 100) { return $false }
         if ($currency -isnot [string] -or $currency -cne 'USD') { return $false }
 
         $foundationHash = [string](Get-StagingObjectValue -InputObject $Binding -Name 'foundationInputHash')
         if ($foundationHash -notmatch '^[a-f0-9]{64}$' -or $foundationHash -cne (Get-StagingCanonicalHash -Value $foundation)) { return $false }
     }
-    elseif ($Stage -cne 'Deploy') { return $true }
+    elseif ($Stage -notin @('Plan', 'Deploy')) { return $true }
 
     $images = Get-StagingObjectValue -InputObject $Binding -Name 'imageDigests'
     $inputs = Get-StagingObjectValue -InputObject $Binding -Name 'terraformInputs'
-    if ($Stage -ceq 'Deploy' -and ($null -eq $images -or $null -eq $inputs)) { return $false }
+    if ($null -eq $images -or $null -eq $inputs) { return $false }
 
-    if ($Stage -ceq 'Deploy') {
+    if ($Stage -in @('Plan', 'Deploy')) {
         try {
             $imageNames = @(Get-StagingObjectPropertyNames -InputObject $images | Sort-Object -CaseSensitive)
             $inputNames = @(Get-StagingObjectPropertyNames -InputObject $inputs)
@@ -179,11 +280,25 @@ function Test-StagingReleaseBindingForStage {
         foreach ($imageName in $imageNames) {
             if ([string](Get-StagingObjectValue -InputObject $images -Name $imageName) -notmatch '@sha256:[a-fA-F0-9]{64}$') { return $false }
         }
+        $repositoryPrefix = "$(Get-StagingObjectValue -InputObject $Binding -Name 'region')-docker.pkg.dev/$(Get-StagingObjectValue -InputObject $Binding -Name 'projectId')/$(Get-StagingObjectValue -InputObject $foundation -Name 'artifactRegistryRepository')"
+        $expectedImages = [ordered]@{
+            api = "$repositoryPrefix/racehunter-api"
+            worker = "$repositoryPrefix/racehunter-worker"
+            referenceTarget = "$repositoryPrefix/racehunter-reference-target"
+        }
+        foreach ($imageName in $expectedImages.Keys) {
+            $digest = [string](Get-StagingObjectValue -InputObject $images -Name $imageName)
+            if ($digest -notmatch "^$([Regex]::Escape($expectedImages[$imageName]))@sha256:[a-fA-F0-9]{64}$") { return $false }
+        }
 
+        try { $plannedVariables = Get-StagingTerraformVariables -Binding $Binding }
+        catch { return $false }
         $inputHash = [string](Get-StagingObjectValue -InputObject $Binding -Name 'terraformInputHash')
         $savedPlanHash = [string](Get-StagingObjectValue -InputObject $Binding -Name 'savedPlanHash')
-        if ($inputHash -notmatch '^[a-f0-9]{64}$' -or $savedPlanHash -notmatch '^[a-f0-9]{64}$') { return $false }
-        if ($inputHash -cne (Get-StagingCanonicalHash -Value $inputs)) { return $false }
+        if ($inputHash -notmatch '^[a-f0-9]{64}$') { return $false }
+        if ($Stage -ceq 'Deploy' -and $savedPlanHash -notmatch '^[a-f0-9]{64}$') { return $false }
+        $plannedVariablesJson = ConvertTo-Json -InputObject (ConvertTo-StagingCanonicalNode -Value $plannedVariables) -Depth 100
+        if ($inputHash -cne (Get-StagingSha256 -Value $plannedVariablesJson)) { return $false }
     }
 
     $bindingMaterial = [ordered]@{
@@ -242,6 +357,22 @@ function New-StagingReleaseBinding {
     $canonicalImages = ConvertTo-StagingCanonicalNode -Value $ImageDigests
     $canonicalInputs = ConvertTo-StagingCanonicalNode -Value $TerraformInputs
     $terraformInputHash = Get-StagingCanonicalHash -Value $canonicalInputs
+    $preliminaryBinding = [pscustomobject][ordered]@{
+        commitSha = $CommitSha.ToLowerInvariant()
+        projectId = $ProjectId
+        region = $Region
+        foundationInputs = $canonicalFoundation
+        imageDigests = $canonicalImages
+        terraformInputs = $canonicalInputs
+    }
+    try {
+        $plannedVariablesJson = ConvertTo-Json -InputObject (ConvertTo-StagingCanonicalNode -Value (Get-StagingTerraformVariables -Binding $preliminaryBinding)) -Depth 100
+        $terraformInputHash = Get-StagingSha256 -Value $plannedVariablesJson
+    }
+    catch {
+        # Incomplete earlier-stage bindings remain constructible, but Plan/Deploy validation
+        # rejects them until the exact application input schema can be materialized.
+    }
     $bindingMaterial = [ordered]@{
         commitSha = $CommitSha.ToLowerInvariant()
         projectId = $ProjectId
@@ -265,6 +396,174 @@ function New-StagingReleaseBinding {
         terraformInputHash = $bindingMaterial.terraformInputHash
         savedPlanHash = $bindingMaterial.savedPlanHash
         bindingHash = Get-StagingCanonicalHash -Value $bindingMaterial
+    }
+}
+
+function New-StagingImagePublicationPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [ValidatePattern('^[a-fA-F0-9]{40}$')] [string] $CommitSha,
+        [Parameter(Mandatory)] [ValidatePattern('^[a-z][a-z0-9-]{4,28}[a-z0-9]$')] [string] $ProjectId,
+        [Parameter(Mandatory)] [ValidatePattern('^[a-z]+-[a-z]+[0-9]$')] [string] $Region,
+        [Parameter(Mandatory)] [ValidatePattern('^[a-z][a-z0-9-]{2,62}$')] [string] $Repository
+    )
+
+    $registry = "$Region-docker.pkg.dev/$ProjectId/$Repository"
+    $definitions = @(
+        [ordered]@{ name = 'api'; image = 'racehunter-api'; dockerfile = 'src/RaceHunter.Api/Dockerfile' },
+        [ordered]@{ name = 'worker'; image = 'racehunter-worker'; dockerfile = 'src/RaceHunter.Worker/Dockerfile' },
+        [ordered]@{ name = 'referenceTarget'; image = 'racehunter-reference-target'; dockerfile = 'src/RaceHunter.ReferenceTarget/Dockerfile' }
+    )
+    $images = foreach ($definition in $definitions) {
+        $repositoryReference = "$registry/$($definition.image)"
+        [pscustomobject][ordered]@{
+            name = $definition.name
+            dockerfile = $definition.dockerfile
+            taggedPushReference = "$repositoryReference`:$($CommitSha.ToLowerInvariant())"
+            requiredDigestPrefix = "$repositoryReference@sha256:"
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        schemaVersion = '1.0'
+        operation = 'PublishImages'
+        requiresApprovalStage = 'PublishImages'
+        projectId = $ProjectId
+        region = $Region
+        repository = $Repository
+        commitSha = $CommitSha.ToLowerInvariant()
+        images = @($images)
+    }
+}
+
+function New-StagingBackendMigrationPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [ValidatePattern('^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$')] [string] $StateBucketName,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $BootstrapDirectory,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $ApplicationDirectory
+    )
+
+    $resolvedBootstrapDirectory = [IO.Path]::GetFullPath($BootstrapDirectory)
+    $resolvedApplicationDirectory = [IO.Path]::GetFullPath($ApplicationDirectory)
+    foreach ($directory in @($resolvedBootstrapDirectory, $resolvedApplicationDirectory)) {
+        if (-not (Test-Path -LiteralPath $directory -PathType Container)) { throw "Terraform directory does not exist at '$directory'." }
+    }
+    $backendTemplatePath = Join-Path $resolvedBootstrapDirectory 'backend.gcs.tf.example'
+    if (-not (Test-Path -LiteralPath $backendTemplatePath -PathType Leaf)) {
+        throw "Bootstrap GCS backend template does not exist at '$backendTemplatePath'."
+    }
+    $generatedBackendPath = Join-Path $resolvedBootstrapDirectory 'backend.gcs.tf'
+
+    return [pscustomobject][ordered]@{
+        schemaVersion = '1.0'
+        operation = 'BackendMigration'
+        requiresApprovalStage = 'Foundation'
+        initialBackend = 'local'
+        remoteBackend = 'gcs'
+        executesMigration = $false
+        stateBucketName = $StateBucketName
+        backendTemplatePath = $backendTemplatePath
+        backendMaterialization = [pscustomobject][ordered]@{
+            action = 'MaterializeBackendTemplate'
+            sourcePath = $backendTemplatePath
+            destinationPath = $generatedBackendPath
+            executesAction = $false
+            requiredBeforeStep = 'MigrateBootstrapAndConfigureApplicationState'
+        }
+        steps = @(
+            [pscustomobject][ordered]@{
+                name = 'InitializeLocalBootstrapState'
+                arguments = @("-chdir=$resolvedBootstrapDirectory", 'init')
+            },
+            [pscustomobject][ordered]@{
+                name = 'MigrateBootstrapAndConfigureApplicationState'
+                backendMaterializationRequired = $true
+                requiredBackendPath = $generatedBackendPath
+                arguments = @("-chdir=$resolvedBootstrapDirectory", 'init', '-migrate-state', "-backend-config=bucket=$StateBucketName", '-backend-config=prefix=bootstrap')
+                applicationArguments = @("-chdir=$resolvedApplicationDirectory", 'init', '-reconfigure', "-backend-config=bucket=$StateBucketName", '-backend-config=prefix=application')
+            }
+        )
+    }
+}
+
+function New-StagingTerraformPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [object] $Binding,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $SavedPlanPath,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $TerraformVariablesPath,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $TerraformDirectory
+    )
+
+    Assert-StagingReleaseBindingForStage -Stage 'Plan' -Binding $Binding
+    $resolvedTerraformDirectory = [IO.Path]::GetFullPath($TerraformDirectory)
+    if (-not (Test-Path -LiteralPath $resolvedTerraformDirectory -PathType Container)) {
+        throw "Terraform directory does not exist at '$resolvedTerraformDirectory'."
+    }
+    $resolvedPlanPath = [IO.Path]::GetFullPath($SavedPlanPath)
+    $planParent = Split-Path -Parent $resolvedPlanPath
+    if (-not (Test-Path -LiteralPath $planParent -PathType Container)) {
+        throw "Saved-plan parent directory does not exist at '$planParent'."
+    }
+    $terraformVariables = ConvertTo-StagingCanonicalNode -Value (Get-StagingTerraformVariables -Binding $Binding)
+    $resolvedTerraformVariablesPath = [IO.Path]::GetFullPath($TerraformVariablesPath)
+    if (-not $resolvedTerraformVariablesPath.EndsWith('.tfvars.json', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Terraform variables must be materialized to a gitignored .tfvars.json path.'
+    }
+    Write-StagingReleaseState -Path $resolvedTerraformVariablesPath -State $terraformVariables
+    $terraformVariablesFileHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $resolvedTerraformVariablesPath).Hash.ToLowerInvariant()
+    if ($terraformVariablesFileHash -cne [string]$Binding.terraformInputHash) {
+        throw 'Materialized Terraform variable bytes do not match the reviewed release binding.'
+    }
+
+    return [pscustomobject][ordered]@{
+        schemaVersion = '1.0'
+        operation = 'Plan'
+        requiresApprovalStage = 'Plan'
+        bindingHash = $Binding.bindingHash
+        terraformInputHash = $Binding.terraformInputHash
+        imageDigests = $Binding.imageDigests
+        terraformVariables = $terraformVariables
+        terraformVariablesPath = $resolvedTerraformVariablesPath
+        terraformVariablesFileHash = $terraformVariablesFileHash
+        savedPlanPath = $resolvedPlanPath
+        planArguments = @("-chdir=$resolvedTerraformDirectory", 'plan', '-input=false', "-var-file=$resolvedTerraformVariablesPath", "-out=$resolvedPlanPath")
+    }
+}
+
+function New-StagingDeploymentPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [object] $Binding,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $SavedPlanPath,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $TerraformDirectory
+    )
+
+    Assert-StagingReleaseBindingForStage -Stage 'Deploy' -Binding $Binding
+    $resolvedTerraformDirectory = [IO.Path]::GetFullPath($TerraformDirectory)
+    if (-not (Test-Path -LiteralPath $resolvedTerraformDirectory -PathType Container)) {
+        throw "Terraform directory does not exist at '$resolvedTerraformDirectory'."
+    }
+    $resolvedPlanPath = [IO.Path]::GetFullPath($SavedPlanPath)
+    if (-not (Test-Path -LiteralPath $resolvedPlanPath -PathType Leaf)) {
+        throw "Reviewed saved plan does not exist at '$resolvedPlanPath'."
+    }
+    $actualPlanHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $resolvedPlanPath).Hash.ToLowerInvariant()
+    if ($actualPlanHash -cne [string]$Binding.savedPlanHash) {
+        throw 'Reviewed saved-plan bytes do not match the approved release binding.'
+    }
+
+    return [pscustomobject][ordered]@{
+        schemaVersion = '1.0'
+        operation = 'Deploy'
+        requiresApprovalStage = 'Deploy'
+        bindingHash = $Binding.bindingHash
+        terraformInputHash = $Binding.terraformInputHash
+        savedPlanHash = $actualPlanHash
+        savedPlanPath = $resolvedPlanPath
+        regeneratesPlan = $false
+        applyArguments = @("-chdir=$resolvedTerraformDirectory", 'apply', '-input=false', '-auto-approve', $resolvedPlanPath)
     }
 }
 
@@ -750,6 +1049,10 @@ function Publish-StagingEvidence {
 
 Export-ModuleMember -Function @(
     'New-StagingReleaseBinding',
+    'New-StagingImagePublicationPlan',
+    'New-StagingBackendMigrationPlan',
+    'New-StagingTerraformPlan',
+    'New-StagingDeploymentPlan',
     'New-StagingReleaseApproval',
     'Test-StagingReleaseApproval',
     'Assert-StagingReleaseApproval',

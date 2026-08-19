@@ -1,5 +1,10 @@
 terraform {
-  required_version = ">= 1.8.0"
+  required_version = "~> 1.14.0"
+
+  # Configure bucket and prefix through terraform init -backend-config after the
+  # separately approved bootstrap stage has created protected remote state.
+  backend "gcs" {}
+
   required_providers {
     google = {
       source  = "hashicorp/google"

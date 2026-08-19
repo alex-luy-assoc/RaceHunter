@@ -28,4 +28,6 @@ coverage/
 *.tfstate
 *.tfstate.*
 *.tfplan
+*.tfvars.json
+deploy/terraform/bootstrap/backend.gcs.tf
 crash.log

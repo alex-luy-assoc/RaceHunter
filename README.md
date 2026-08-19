@@ -75,7 +75,9 @@ The API, worker, and target emit structured request logs and OpenTelemetry trace
 
 ### Google Cloud staging
 
-Terraform under `deploy/terraform` preserves the same three application images and provisions Cloud Run, Pub/Sub/DLQ, Cloud SQL, Secret Manager, least-privilege IAM, Google-built collector sidecars, hard service scale ceilings, deletion protection, and an optional budget. Only the API grants `allUsers`; worker and target keep internet-routable `run.app` ingress so authenticated service-to-service calls work without an absent VPC route, while scoped `run.invoker` IAM still denies unauthenticated callers. Pub/Sub and API use exact-audience OIDC identity tokens for the IAM-private worker, and the worker does the same for the target. Staging caps the worker at one instance and one inbound request so its process-wide global/target semaphores are deployment-wide while still supporting 100 logical actors inside a campaign.
+Terraform is split into a protected foundation root at `deploy/terraform/bootstrap` and an application root at `deploy/terraform`. The foundation enables the exact required APIs and creates a private, versioned, retention-protected state bucket plus an Artifact Registry repository with immutable tags. The application root preserves the same three application images and provisions Cloud Run, Pub/Sub/DLQ, Secret Manager, a mandatory budget, hard service scale ceilings, and deletion protection. Primary RaceHunter data and reference-target data use separate Cloud SQL instances, users, passwords, and Secret Manager connection references.
+
+Only the API grants `allUsers`; worker and target keep internet-routable `run.app` ingress so authenticated service-to-service calls work without an absent VPC route, while scoped `run.invoker` IAM still denies unauthenticated callers. No service-account keys are created. Pub/Sub and API use their exact service identities and the worker service URL as the OIDC audience; the worker uses its identity and the exact target service URL for target calls. Staging caps the worker at one instance and one inbound request so its process-wide global/target semaphores are deployment-wide while still supporting 100 logical actors inside a campaign.
 
 The staged-release entry point can safely initialize and inspect its gitignored local state without credentials or Google API access:
 
@@ -85,16 +87,22 @@ $commitSha = git rev-parse HEAD
 ./deploy/scripts/staging-release.ps1 -Stage Status -ProjectId racehunter-staging -Region us-east1 -CommitSha $commitSha
 ```
 
-The project and region in this local record identify a proposed release; they do not authorize cloud access or mutation. In the current Phase 1 implementation, every external stage is default-denied unless supplied a fresh exact-stage approval bound to its release material, and even a valid approval stops at the contract boundary because external execution is intentionally unavailable. Raw release state belongs under `memory-bank/.local/staging-release/`; only schema-validated, environment-qualified, secret-safe evidence may be promoted later.
+The project and region in this local record identify a proposed release; they do not authorize cloud access or mutation. Every external stage is default-denied unless supplied a fresh exact-stage approval bound to its release material. The Phase 2 helpers produce explicit image-publication, backend-migration, Terraform-plan, and saved-plan-apply descriptors; they do not execute those actions. Raw release state, `.tfvars.json`, saved plans, generated backend configuration, provider caches, and Terraform state stay outside Git. Only schema-validated, environment-qualified, secret-safe evidence may be promoted later.
 
 Validate Terraform locally without credentials or state:
 
 ```powershell
-docker run --rm -v "${PWD}:/workspace" -w /workspace/deploy/terraform hashicorp/terraform:1.14.4 fmt -check -diff
+docker run --rm -v "${PWD}:/workspace" -w /workspace/deploy/terraform hashicorp/terraform:1.14.4 fmt -check -diff -recursive
+docker run --rm -v "${PWD}:/workspace" -w /workspace/deploy/terraform/bootstrap hashicorp/terraform:1.14.4 init -backend=false
+docker run --rm -v "${PWD}:/workspace" -w /workspace/deploy/terraform/bootstrap hashicorp/terraform:1.14.4 validate
 docker run --rm -v "${PWD}:/workspace" -w /workspace/deploy/terraform hashicorp/terraform:1.14.4 init -backend=false
 docker run --rm -v "${PWD}:/workspace" -w /workspace/deploy/terraform hashicorp/terraform:1.14.4 validate
 ```
 
-Do not run `deploy/scripts/deploy.ps1` without explicit approval. It requires `-ApproveBillableResources`, rejects mutable image tags, validates Terraform, creates a plan, and applies only immutable `@sha256:` image digests. The deployed golden-path script separately requires the API, worker, and target URLs plus `-ApproveStagingSmoke`; it proves unauthenticated worker/target denial, bounds every request by the remaining deadline, and fails if the complete finding/fix proof exceeds four minutes. This repository has not applied Terraform or contacted a staging project.
+After fresh Foundation approval and an approved bootstrap apply has created the bucket, materialize `deploy/terraform/bootstrap/backend.gcs.tf` from `backend.gcs.tf.example`. Then use the exact local-to-GCS migration and application `init -reconfigure` arguments emitted by `New-StagingBackendMigrationPlan`; the generated backend file remains gitignored. Do not improvise state moves or apply the application root with local state.
+
+After separately approved publication resolves all three application images to repository-qualified `@sha256:` references, `New-StagingTerraformPlan` writes the exact reviewed variables to a gitignored `.tfvars.json` file and binds its bytes to the Terraform-input hash. A deployment binding adds the reviewed saved-plan hash, and `New-StagingDeploymentPlan` accepts only those unchanged plan bytes; it never regenerates the plan. Collector-image digest resolution requires explicitly authorized network access and is deferred to the later deployment phase.
+
+Do not run `deploy/scripts/deploy.ps1` without explicit approval. It requires `-ApproveBillableResources`, rejects mutable application image tags, validates Terraform, creates a plan, and applies only immutable application `@sha256:` image digests. The deployed golden-path script separately requires the API, worker, and target URLs plus `-ApproveStagingSmoke`; it proves unauthenticated worker/target denial, bounds every request by the remaining deadline, and fails if the complete finding/fix proof exceeds four minutes. Phase 2 performed only local contract generation and validation: it used no credentials and made no Google API calls, image publications, state migrations, Terraform plans or applies, deployments, staging smoke or demo runs, cleanup, or destruction.
 
 The judge narration and release evidence are in `docs/demo/demo-script.md` and `docs/demo/submission-checklist.md`; the current trust, identity, data, and telemetry paths are in `docs/architecture/system-context.md`.

@@ -25,10 +25,13 @@ variable "reference_target_image" {
 }
 
 variable "billing_account_id" {
-  description = "Optional billing account used to create the staging budget alert."
+  description = "Approved billing account that always receives the staging budget alert."
   type        = string
-  default     = null
-  nullable    = true
+
+  validation {
+    condition     = can(regex("^[A-Z0-9]{6}-[A-Z0-9]{6}-[A-Z0-9]{6}$", var.billing_account_id))
+    error_message = "billing_account_id must be a valid billing account reference."
+  }
 }
 
 variable "monthly_budget_usd" {
@@ -36,18 +39,48 @@ variable "monthly_budget_usd" {
   type        = number
   default     = 25
   validation {
-    condition     = var.monthly_budget_usd > 0
-    error_message = "monthly_budget_usd must be positive."
+    condition     = var.monthly_budget_usd > 0 && var.monthly_budget_usd <= 100 && floor(var.monthly_budget_usd) == var.monthly_budget_usd
+    error_message = "monthly_budget_usd must be a positive whole-dollar amount no greater than 100."
   }
 }
 
-variable "max_instance_count" {
-  description = "Hard per-service Cloud Run scale ceiling for staging cost containment."
+variable "api_max_instance_count" {
+  description = "Hard Cloud Run scale ceiling for the public staging API."
   type        = number
   default     = 2
   validation {
-    condition     = var.max_instance_count >= 1 && var.max_instance_count <= 10
-    error_message = "max_instance_count must be between 1 and 10."
+    condition     = var.api_max_instance_count >= 1 && var.api_max_instance_count <= 2 && floor(var.api_max_instance_count) == var.api_max_instance_count
+    error_message = "api_max_instance_count must be a whole number from 1 through 2."
+  }
+}
+
+variable "reference_target_max_instance_count" {
+  description = "Hard Cloud Run scale ceiling for the private staging reference target."
+  type        = number
+  default     = 1
+  validation {
+    condition     = var.reference_target_max_instance_count >= 1 && var.reference_target_max_instance_count <= 2 && floor(var.reference_target_max_instance_count) == var.reference_target_max_instance_count
+    error_message = "reference_target_max_instance_count must be a whole number from 1 through 2."
+  }
+}
+
+variable "worker_max_instance_count" {
+  description = "Reviewed hard worker ceiling; one instance preserves deployment-wide process limiters."
+  type        = number
+  default     = 1
+  validation {
+    condition     = var.worker_max_instance_count == 1
+    error_message = "worker_max_instance_count must remain exactly 1."
+  }
+}
+
+variable "deletion_protection" {
+  description = "Reviewed staging protection applied to both databases and all Cloud Run services."
+  type        = bool
+  default     = true
+  validation {
+    condition     = var.deletion_protection
+    error_message = "deletion_protection must remain enabled."
   }
 }
 

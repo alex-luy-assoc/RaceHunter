@@ -1,0 +1,6 @@
+# Copy this file to a gitignored backend.gcs.tf only after the approved local
+# bootstrap apply has created the protected state bucket. Then use the exact
+# -migrate-state arguments emitted by New-StagingBackendMigrationPlan.
+terraform {
+  backend "gcs" {}
+}
