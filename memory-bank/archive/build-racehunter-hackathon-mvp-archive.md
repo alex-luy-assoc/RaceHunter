@@ -272,5 +272,5 @@ Four additive learned rules were created under `memory-bank/agent-rules/_learned
 - Deployment, configuration, and rollback: complete
 - Maintenance and troubleshooting guidance: complete
 - Planned-file inventory reconciliation: complete
-- Task and roadmap completion markers: complete locally
-- Push and PR to protected `main`: pending because no `origin` remote is configured
+- Task and roadmap completion markers: present on `origin/main` at archive commit `4a83936`
+- Protected-branch handoff: reconciliation PR [#1](https://github.com/ethereumnitrate/RaceHunter/pull/1) is open from `feature/build-racehunter-hackathon-mvp` to `main`; the original archive commit was already present on `origin/main`, so the PR records the corrected handoff state without rewriting protected history
