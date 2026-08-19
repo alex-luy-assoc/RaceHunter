@@ -77,6 +77,16 @@ The API, worker, and target emit structured request logs and OpenTelemetry trace
 
 Terraform under `deploy/terraform` preserves the same three application images and provisions Cloud Run, Pub/Sub/DLQ, Cloud SQL, Secret Manager, least-privilege IAM, Google-built collector sidecars, hard service scale ceilings, deletion protection, and an optional budget. Only the API grants `allUsers`; worker and target keep internet-routable `run.app` ingress so authenticated service-to-service calls work without an absent VPC route, while scoped `run.invoker` IAM still denies unauthenticated callers. Pub/Sub and API use exact-audience OIDC identity tokens for the IAM-private worker, and the worker does the same for the target. Staging caps the worker at one instance and one inbound request so its process-wide global/target semaphores are deployment-wide while still supporting 100 logical actors inside a campaign.
 
+The staged-release entry point can safely initialize and inspect its gitignored local state without credentials or Google API access:
+
+```powershell
+$commitSha = git rev-parse HEAD
+./deploy/scripts/staging-release.ps1 -Stage Initialize -ProjectId racehunter-staging -Region us-east1 -CommitSha $commitSha
+./deploy/scripts/staging-release.ps1 -Stage Status -ProjectId racehunter-staging -Region us-east1 -CommitSha $commitSha
+```
+
+The project and region in this local record identify a proposed release; they do not authorize cloud access or mutation. In the current Phase 1 implementation, every external stage is default-denied unless supplied a fresh exact-stage approval bound to its release material, and even a valid approval stops at the contract boundary because external execution is intentionally unavailable. Raw release state belongs under `memory-bank/.local/staging-release/`; only schema-validated, environment-qualified, secret-safe evidence may be promoted later.
+
 Validate Terraform locally without credentials or state:
 
 ```powershell

@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://racehunter.dev/schemas/staging-evidence-1.0.json",
+  "title": "RaceHunter sanitized staging evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "generatedAtUtc",
+    "records"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "generatedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidenceRecord"
+      }
+    }
+  },
+  "$defs": {
+    "evidenceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "classification",
+        "observedAtUtc",
+        "environment",
+        "method",
+        "expected",
+        "observed",
+        "commitSha",
+        "imageDigests",
+        "identifiers",
+        "artifactReference"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "1.0"
+        },
+        "classification": {
+          "enum": [
+            "local",
+            "local-emulated",
+            "cloud-read-only",
+            "deployed-staging",
+            "live-gemini",
+            "timed-staging-demo"
+          ]
+        },
+        "observedAtUtc": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected": {
+          "$ref": "#/$defs/expectedSummary"
+        },
+        "observed": {
+          "$ref": "#/$defs/observedSummary"
+        },
+        "commitSha": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{40}$"
+        },
+        "imageDigests": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "@sha256:[a-fA-F0-9]{64}$"
+          }
+        },
+        "identifiers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "artifactReference": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "expectedSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "observedSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "status"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "blocked"
+          ]
+        }
+      }
+    }
+  }
+}

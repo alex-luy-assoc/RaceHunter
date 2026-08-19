@@ -157,6 +157,13 @@ Verified Phase 5 capabilities and local gates:
 - The final local baseline after Phase 5 compliance hardening is 211 .NET tests, 8 Vitest tests, 4 mocked Playwright tests, and two consecutive 2-test fresh-volume Docker-backed Playwright runs. The real journeys render owner-protected manual evidence from shared persisted state, reference 3/3 reproduction, two-actor minimization, vulnerable/fixed replay, refresh recovery, and local Cloud Proof.
 - The deploy and staging-smoke scripts require separate explicit approval switches. Image inputs must be immutable digests, and deployed smoke enforces the under-four-minute finding/fix proof. No Terraform apply, Google Cloud API contact, credential use, remote, push, PR, or deployment occurred during Phase 5.
 
+Verified staged-release Phase 1 capabilities and local gates:
+
+- `deploy/scripts/StagingRelease.psm1` provides a provider-independent PowerShell release contract with exact stage and release-identity approvals, canonical binding hashes, monotonic durable local state, downstream invalidation on drift, and a fail-closed ambiguous-mutation recovery interlock.
+- `deploy/scripts/staging-release.ps1` exposes local initialization, status, failure recording, reconciliation, and approval validation. External stage execution remains intentionally unavailable until its later implementation phase; the Phase 1 entry point performs no credential access or cloud operation.
+- `deploy/scripts/staging-evidence.schema.json` and the module enforce the versioned environment-qualified evidence contract, exact properties and types, structured expected/observed summaries, secret-material rejection, and atomic manifest promotion. Raw state remains under the gitignored `memory-bank/.local/staging-release/` boundary.
+- Verification passed 14 focused staging-release contract tests and 241 tests across the full .NET suite, plus .NET and web builds and web lint. No package or technology dependency was added, and no Google API call, billable mutation, image publication, Terraform apply, deployment, smoke, demo, cleanup, or destruction occurred.
+
 ## Open Technical Decisions
 
 Choose the smallest option that preserves the golden-path demo and approved boundaries:
