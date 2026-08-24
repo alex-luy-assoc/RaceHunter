@@ -197,6 +197,10 @@ public sealed class PhaseFiveDeploymentContractTests
         Assert.Contains("WorkerUrl", script, StringComparison.Ordinal);
         Assert.Contains("ReferenceTargetUrl", script, StringComparison.Ordinal);
         Assert.Contains("Assert-UnauthenticatedDenied", script, StringComparison.Ordinal);
+        Assert.Contains("'/api/capabilities'", script, StringComparison.Ordinal);
+        Assert.Contains("'/internal/replays'", script, StringComparison.Ordinal);
+        Assert.Contains("'/api/inventory'", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("'/healthz'", script, StringComparison.Ordinal);
         Assert.Contains("-TimeoutSec", script, StringComparison.Ordinal);
     }
 

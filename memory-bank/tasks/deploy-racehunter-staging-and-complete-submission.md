@@ -90,8 +90,8 @@ The archived MVP is the implementation baseline. Local, emulated, contract-valid
 **Priority**: MUST
 
 **Given** the reviewed Terraform plan has been approved and applied in the named non-production staging environment
-**When** the workflow inspects the deployed `racehunter-api`, `racehunter-worker`, and `racehunter-reference-target` services and calls their known `/healthz` routes
-**Then** all three selected revisions are healthy and use the approved immutable digests; the API returns HTTP 200 without caller credentials; unauthenticated worker and reference-target calls return authoritative HTTP 401 or 403; and IAM contains exactly one `allUsers` `roles/run.invoker` grant, on the API only.
+**When** the workflow inspects the deployed `racehunter-api`, `racehunter-worker`, and `racehunter-reference-target` services, retains their internal `/healthz` startup probes, and externally calls API `GET /api/capabilities`, worker `GET /internal/replays`, and reference-target `GET /api/inventory`
+**Then** all three selected revisions are healthy and use the approved immutable digests; the API application route returns HTTP 200 without caller credentials; unauthenticated worker and reference-target application routes return authoritative HTTP 401 or 403; and IAM contains exactly one `allUsers` `roles/run.invoker` grant, on the API only.
 
 #### AC-INTEGRATION-3: IAM and workload identities are least-privilege and exact-audience
 **Priority**: MUST
@@ -260,9 +260,12 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 **Status**: IN_PROGRESS
 **Started**: 2026-08-24T12:41:35Z
 **Completed**: —
-**Output**: Post-untaint apply reconciled read-only to 51 addresses; Cloud Run exact-secret-version contract delivered RED→GREEN; pinned Terraform format/init/validate, 15/15 focused deployment contracts, and 50/50 architecture contracts pass. Commit-bound release checkpoint regeneration remains.
+**Output**: Deployment and topology validation succeeded. Cloud Run's external edge returned its reserved-path 404 page for all `/healthz` requests while the API application route remained reachable and internal `/healthz` startup probes remained healthy. External validation/smoke now uses service-specific application routes; RED→GREEN and all 50 architecture contracts pass. Exact unauthenticated route-validation binding remains.
 
 ### Completed Steps
+- Step 3 Recovery TDD (external route probes): COMPLETE (2026-08-24T23:55:00Z) - RED reproduced the smoke contract's external `/healthz` dependency; API capabilities, worker replay, and reference-target inventory probes delivered GREEN while internal Cloud Run startup probes remain `/healthz`.
+- Step 7 Recovery Verification (external route probes): COMPLETE (2026-08-24T23:56:00Z) - Focused external-route contract 1/1 PASS, full architecture contracts 50/50 PASS, and `git diff --check` PASS.
+- Step 8 Recovery Review (external route probes): COMPLETE (2026-08-24T23:57:00Z) - Independent review PASS with no blockers; approval remains default-deny, every request remains deadline-bounded, and an accidentally public private service fails its route assertion.
 - Step 3 Recovery TDD (exact secret versions): COMPLETE (2026-08-24T20:22:00Z) - RED reproduced all eight floating Cloud Run `latest` references; API, worker, and reference target now bind their generated secret inputs to Terraform's concrete Secret Manager version outputs.
 - Step 7 Recovery Verification (exact secret versions): COMPLETE (2026-08-24T20:23:00Z) - Focused Phase Five contracts 15/15 PASS; full architecture contracts 50/50 PASS; pinned Terraform 1.14.4 fmt, isolated init without backend, and validate PASS.
 - Step 8 Recovery Review (exact secret versions): COMPLETE (2026-08-24T20:23:00Z) - Minimal eight-reference diff reviewed; exact versions create explicit data edges and a fresh service-template revision without replacement, deletion, credential, IAM, API, image, state, or direct cloud operations.
@@ -340,6 +343,7 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 - Documentation Agent: COMPLETE (2026-08-19T16:23:00Z) - Updated inline documentation, README, techContext, and systemPatterns.
 
 ### Guard & Recovery Log
+- 2026-08-24: Exact deployed diagnostics proved `/healthz` external requests for API, worker, and reference target all received the same Cloud Run 1564-byte edge 404, while API `/api/capabilities` returned 200, ingress was `INGRESS_TRAFFIC_ALL`, the default URI was enabled, API `allUsers` invoker IAM was present, and the ready revision's internal startup probe remained `/healthz`. Cloud Run documents reserved URL paths including some paths ending in `z` and recommends avoiding external paths ending in `z`; external validation and smoke therefore use service-specific application routes without changing internal probes, images, or Terraform.
 - 2026-08-24: The post-untaint apply stopped without retry because Cloud Run continued reconciling the original failed reference-target revision after the required secret version existed. Read-only reconciliation preserved all 51 tracked addresses. All eight generated-secret references now use Terraform's exact version outputs instead of `latest`, providing both an implicit creation edge and a real service-template change that can supersede the failed revision.
 - 2026-08-24: The second exact apply stopped without retry after Cloud Run evaluated a `latest` secret before Terraform had created its version. Read-only reconciliation found 51 addresses and no inspection mutation. All three Cloud Run resources now explicitly depend on every generated Secret Manager version they consume, preventing parallel creation from racing database, demo-control, or OTel materialization.
 - 2026-08-24: The live generated bootstrap `backend.gcs.tf` exposed a pre-existing worktree-coupled contract. The test now uses an isolated temporary bootstrap copy, preserving the real post-Foundation operator file while verifying default-deny materialization behavior.
@@ -348,7 +352,7 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 ### Resumption Notes
 **Can Resume**: YES
 **Resume From**: Phase 4 recovery via `/ala:build deploy-racehunter-staging-and-complete-submission`
-**Notes**: Foundation and immutable image publication are complete and must not be repeated. The post-untaint application apply was reconciled read-only to 51 Terraform addresses. The tracked exact-secret-version correction invalidates every prior recovery commit binding, saved plan, and Plan/Deploy approval; resume from a fresh commit-bound local qualification and exact Plan gate. No authenticated cloud action is authorized until that request is approved.
+**Notes**: Foundation, immutable image publication, and application deployment are complete and must not be repeated. Deployed diagnostic result `c2fce9fb8bd61507ac5e9ebb59e5df96781b96d18911e6153f721565e426aaf0` proves the external `/healthz` 404 is a Cloud Run reserved-path edge behavior rather than an unhealthy revision. Resume from a fresh exact unauthenticated application-route validation gate; do not run Terraform, republish images, repeat topology inspection, or begin smoke without its own approval.
 
 ## Plan Critique
 

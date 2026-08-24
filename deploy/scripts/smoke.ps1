@@ -19,14 +19,14 @@ function Remaining-TimeoutSeconds {
     if ($remaining -lt 1) { throw 'The staging smoke deadline was exhausted.' }
     return $remaining
 }
-function Assert-UnauthenticatedDenied([uri] $ServiceUrl, [string] $Name) {
+function Assert-UnauthenticatedDenied([uri] $ServiceUrl, [string] $Name, [string] $Path) {
     try {
-        Invoke-WebRequest -Uri ([uri]::new($ServiceUrl, '/healthz')) -UseBasicParsing -TimeoutSec (Remaining-TimeoutSeconds) | Out-Null
+        Invoke-WebRequest -Method Get -Uri ([uri]::new($ServiceUrl, $Path)) -UseBasicParsing -TimeoutSec (Remaining-TimeoutSeconds) | Out-Null
         throw "$Name accepted an unauthenticated invocation."
     }
     catch {
         $status = $_.Exception.Response.StatusCode.value__
-        if ($status -notin @(401, 403)) { throw "$Name health route did not return an authoritative IAM denial (received $status)." }
+        if ($status -notin @(401, 403)) { throw "$Name application route did not return an authoritative IAM denial (received $status)." }
     }
 }
 function Wait-Json([string] $Path, [scriptblock] $Ready) {
@@ -43,11 +43,11 @@ function Wait-Json([string] $Path, [scriptblock] $Ready) {
     throw "Timed out waiting for $Path"
 }
 
-Assert-UnauthenticatedDenied $WorkerUrl 'Worker'
-Assert-UnauthenticatedDenied $ReferenceTargetUrl 'Reference target'
+Assert-UnauthenticatedDenied $WorkerUrl 'Worker' '/internal/replays'
+Assert-UnauthenticatedDenied $ReferenceTargetUrl 'Reference target' '/api/inventory'
 
-$health = Invoke-WebRequest -Uri (ApiUri '/healthz') -UseBasicParsing -TimeoutSec (Remaining-TimeoutSeconds)
-if ($health.StatusCode -ne 200) { throw "API health check failed with $($health.StatusCode)." }
+$capabilities = Invoke-WebRequest -Method Get -Uri (ApiUri '/api/capabilities') -UseBasicParsing -TimeoutSec (Remaining-TimeoutSeconds)
+if ($capabilities.StatusCode -ne 200) { throw "API capabilities check failed with $($capabilities.StatusCode)." }
 
 $hunt = Invoke-RestMethod -Method Post -Uri (ApiUri '/api/hunts') -ContentType 'application/json' -TimeoutSec (Remaining-TimeoutSeconds) -Body (@{
     objective = 'Successful orders must not exceed available inventory.'
