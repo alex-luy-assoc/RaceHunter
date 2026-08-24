@@ -286,7 +286,7 @@ resource "google_cloud_run_v2_service" "api" {
       secret {
         secret = google_secret_manager_secret.otel_collector_config.secret_id
         items {
-          version = "latest"
+          version = google_secret_manager_secret_version.otel_collector_config.version
           path    = "config.yaml"
         }
       }
@@ -301,7 +301,7 @@ resource "google_cloud_run_v2_service" "api" {
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.racehunter_database.secret_id
-            version = "latest"
+            version = google_secret_manager_secret_version.racehunter_database.version
           }
         }
       }
@@ -413,7 +413,7 @@ resource "google_cloud_run_v2_service" "worker" {
       secret {
         secret = google_secret_manager_secret.otel_collector_config.secret_id
         items {
-          version = "latest"
+          version = google_secret_manager_secret_version.otel_collector_config.version
           path    = "config.yaml"
         }
       }
@@ -428,7 +428,7 @@ resource "google_cloud_run_v2_service" "worker" {
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.racehunter_database.secret_id
-            version = "latest"
+            version = google_secret_manager_secret_version.racehunter_database.version
           }
         }
       }
@@ -437,7 +437,7 @@ resource "google_cloud_run_v2_service" "worker" {
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.demo_control.secret_id
-            version = "latest"
+            version = google_secret_manager_secret_version.demo_control.version
           }
         }
       }
@@ -545,7 +545,7 @@ resource "google_cloud_run_v2_service" "reference_target" {
       secret {
         secret = google_secret_manager_secret.otel_collector_config.secret_id
         items {
-          version = "latest"
+          version = google_secret_manager_secret_version.otel_collector_config.version
           path    = "config.yaml"
         }
       }
@@ -560,7 +560,7 @@ resource "google_cloud_run_v2_service" "reference_target" {
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.target_database.secret_id
-            version = "latest"
+            version = google_secret_manager_secret_version.target_database.version
           }
         }
       }
@@ -569,7 +569,7 @@ resource "google_cloud_run_v2_service" "reference_target" {
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.demo_control.secret_id
-            version = "latest"
+            version = google_secret_manager_secret_version.demo_control.version
           }
         }
       }

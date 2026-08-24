@@ -260,9 +260,13 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 **Status**: IN_PROGRESS
 **Started**: 2026-08-24T12:41:35Z
 **Completed**: —
-**Output**: Second partial apply reconciled read-only to 51 addresses; Cloud Run secret-version ordering contract delivered RED→GREEN; pinned Terraform format/init/validate, 14/14 focused deployment contracts, and 49/49 architecture contracts pass. Commit-bound release checkpoint regeneration remains.
+**Output**: Post-untaint apply reconciled read-only to 51 addresses; Cloud Run exact-secret-version contract delivered RED→GREEN; pinned Terraform format/init/validate, 15/15 focused deployment contracts, and 50/50 architecture contracts pass. Commit-bound release checkpoint regeneration remains.
 
 ### Completed Steps
+- Step 3 Recovery TDD (exact secret versions): COMPLETE (2026-08-24T20:22:00Z) - RED reproduced all eight floating Cloud Run `latest` references; API, worker, and reference target now bind their generated secret inputs to Terraform's concrete Secret Manager version outputs.
+- Step 7 Recovery Verification (exact secret versions): COMPLETE (2026-08-24T20:23:00Z) - Focused Phase Five contracts 15/15 PASS; full architecture contracts 50/50 PASS; pinned Terraform 1.14.4 fmt, isolated init without backend, and validate PASS.
+- Step 8 Recovery Review (exact secret versions): COMPLETE (2026-08-24T20:23:00Z) - Minimal eight-reference diff reviewed; exact versions create explicit data edges and a fresh service-template revision without replacement, deletion, credential, IAM, API, image, state, or direct cloud operations.
+- Step 9 Recovery Documentation (exact secret versions): COMPLETE (2026-08-24T20:24:00Z) - README, technical context, and durable Phase 4 recovery notes record the concrete-version invariant and 51-address reconciliation checkpoint.
 - Step 3 Recovery TDD (secret ordering): COMPLETE (2026-08-24T16:05:00Z) - RED reproduced the missing Cloud Run-to-secret-version edge; explicit dependencies for database, demo-control, and OTel versions delivered GREEN for API, worker, and reference target.
 - Step 7 Recovery Verification (secret ordering): COMPLETE (2026-08-24T16:08:00Z) - Focused Phase Five contracts 14/14 PASS; full architecture contracts 49/49 PASS; pinned Terraform 1.14.4 fmt, isolated init without backend, and validate PASS.
 - Step 8 Recovery Review (secret ordering): COMPLETE (2026-08-24T16:09:00Z) - Minimal ordering-only diff reviewed; no credential, IAM, API, image, state, or direct cloud operation added.
@@ -336,6 +340,7 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 - Documentation Agent: COMPLETE (2026-08-19T16:23:00Z) - Updated inline documentation, README, techContext, and systemPatterns.
 
 ### Guard & Recovery Log
+- 2026-08-24: The post-untaint apply stopped without retry because Cloud Run continued reconciling the original failed reference-target revision after the required secret version existed. Read-only reconciliation preserved all 51 tracked addresses. All eight generated-secret references now use Terraform's exact version outputs instead of `latest`, providing both an implicit creation edge and a real service-template change that can supersede the failed revision.
 - 2026-08-24: The second exact apply stopped without retry after Cloud Run evaluated a `latest` secret before Terraform had created its version. Read-only reconciliation found 51 addresses and no inspection mutation. All three Cloud Run resources now explicitly depend on every generated Secret Manager version they consume, preventing parallel creation from racing database, demo-control, or OTel materialization.
 - 2026-08-24: The live generated bootstrap `backend.gcs.tf` exposed a pre-existing worktree-coupled contract. The test now uses an isolated temporary bootstrap copy, preserving the real post-Foundation operator file while verifying default-deny materialization behavior.
 - 2026-08-24: Full offline solution verification was blocked by NuGet repository-signature network access and incomplete sandbox package probing. The official .NET 10 SDK container built the architecture suite; 47/48 passed, with only the Windows-only command-shim contract inapplicable on Linux. The exact recovery subset passed 14/14.
@@ -343,7 +348,7 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 ### Resumption Notes
 **Can Resume**: YES
 **Resume From**: Phase 4 recovery via `/ala:build deploy-racehunter-staging-and-complete-submission`
-**Notes**: Foundation and immutable image publication are complete and must not be repeated. The second partial application apply was reconciled read-only to 51 Terraform addresses. The tracked secret-ordering correction invalidates every prior recovery commit binding, saved plan, and Plan/Deploy approval; resume from a fresh commit-bound local qualification and exact Plan gate. No authenticated cloud action is authorized until that request is approved.
+**Notes**: Foundation and immutable image publication are complete and must not be repeated. The post-untaint application apply was reconciled read-only to 51 Terraform addresses. The tracked exact-secret-version correction invalidates every prior recovery commit binding, saved plan, and Plan/Deploy approval; resume from a fresh commit-bound local qualification and exact Plan gate. No authenticated cloud action is authorized until that request is approved.
 
 ## Plan Critique
 

@@ -112,6 +112,30 @@ public sealed class PhaseFiveDeploymentContractTests
     }
 
     [Fact]
+    public void Terraform_pins_generated_secret_references_to_the_exact_created_versions()
+    {
+        var terraform = File.ReadAllText(Path.Combine(Root, "deploy", "terraform", "main.tf"));
+        var api = CloudRunService(terraform, "api");
+        var worker = CloudRunService(terraform, "worker");
+        var referenceTarget = CloudRunService(terraform, "reference_target");
+
+        Assert.Contains("version = google_secret_manager_secret_version.racehunter_database.version", api, StringComparison.Ordinal);
+        Assert.Contains("version = google_secret_manager_secret_version.otel_collector_config.version", api, StringComparison.Ordinal);
+
+        Assert.Contains("version = google_secret_manager_secret_version.racehunter_database.version", worker, StringComparison.Ordinal);
+        Assert.Contains("version = google_secret_manager_secret_version.demo_control.version", worker, StringComparison.Ordinal);
+        Assert.Contains("version = google_secret_manager_secret_version.otel_collector_config.version", worker, StringComparison.Ordinal);
+
+        Assert.Contains("version = google_secret_manager_secret_version.target_database.version", referenceTarget, StringComparison.Ordinal);
+        Assert.Contains("version = google_secret_manager_secret_version.demo_control.version", referenceTarget, StringComparison.Ordinal);
+        Assert.Contains("version = google_secret_manager_secret_version.otel_collector_config.version", referenceTarget, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("version = \"latest\"", api, StringComparison.Ordinal);
+        Assert.DoesNotContain("version = \"latest\"", worker, StringComparison.Ordinal);
+        Assert.DoesNotContain("version = \"latest\"", referenceTarget, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Terraform_isolates_primary_and_target_database_credentials_by_instance()
     {
         var terraform = File.ReadAllText(Path.Combine(Root, "deploy", "terraform", "main.tf"));
