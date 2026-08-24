@@ -380,7 +380,13 @@ resource "google_cloud_run_v2_service" "api" {
     }
   }
 
-  depends_on = [google_secret_manager_secret_iam_member.api_database, google_secret_manager_secret_iam_member.otel_collector_config, google_project_iam_member.telemetry_writers]
+  depends_on = [
+    google_secret_manager_secret_version.racehunter_database,
+    google_secret_manager_secret_version.otel_collector_config,
+    google_secret_manager_secret_iam_member.api_database,
+    google_secret_manager_secret_iam_member.otel_collector_config,
+    google_project_iam_member.telemetry_writers
+  ]
 }
 
 resource "google_cloud_run_v2_service" "worker" {
@@ -509,6 +515,9 @@ resource "google_cloud_run_v2_service" "worker" {
   }
 
   depends_on = [
+    google_secret_manager_secret_version.racehunter_database,
+    google_secret_manager_secret_version.demo_control,
+    google_secret_manager_secret_version.otel_collector_config,
     google_secret_manager_secret_iam_member.worker_database,
     google_secret_manager_secret_iam_member.worker_demo_control,
     google_secret_manager_secret_iam_member.otel_collector_config,
@@ -598,6 +607,9 @@ resource "google_cloud_run_v2_service" "reference_target" {
   }
 
   depends_on = [
+    google_secret_manager_secret_version.target_database,
+    google_secret_manager_secret_version.demo_control,
+    google_secret_manager_secret_version.otel_collector_config,
     google_secret_manager_secret_iam_member.target_database,
     google_secret_manager_secret_iam_member.target_demo_control,
     google_secret_manager_secret_iam_member.otel_collector_config,

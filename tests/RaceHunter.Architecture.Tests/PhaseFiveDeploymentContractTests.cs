@@ -92,6 +92,26 @@ public sealed class PhaseFiveDeploymentContractTests
     }
 
     [Fact]
+    public void Terraform_orders_cloud_run_after_every_secret_version_each_service_consumes()
+    {
+        var terraform = File.ReadAllText(Path.Combine(Root, "deploy", "terraform", "main.tf"));
+        var api = CloudRunService(terraform, "api");
+        var worker = CloudRunService(terraform, "worker");
+        var referenceTarget = CloudRunService(terraform, "reference_target");
+
+        Assert.Contains("google_secret_manager_secret_version.racehunter_database", api, StringComparison.Ordinal);
+        Assert.Contains("google_secret_manager_secret_version.otel_collector_config", api, StringComparison.Ordinal);
+
+        Assert.Contains("google_secret_manager_secret_version.racehunter_database", worker, StringComparison.Ordinal);
+        Assert.Contains("google_secret_manager_secret_version.demo_control", worker, StringComparison.Ordinal);
+        Assert.Contains("google_secret_manager_secret_version.otel_collector_config", worker, StringComparison.Ordinal);
+
+        Assert.Contains("google_secret_manager_secret_version.target_database", referenceTarget, StringComparison.Ordinal);
+        Assert.Contains("google_secret_manager_secret_version.demo_control", referenceTarget, StringComparison.Ordinal);
+        Assert.Contains("google_secret_manager_secret_version.otel_collector_config", referenceTarget, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Terraform_isolates_primary_and_target_database_credentials_by_instance()
     {
         var terraform = File.ReadAllText(Path.Combine(Root, "deploy", "terraform", "main.tf"));
@@ -179,6 +199,17 @@ public sealed class PhaseFiveDeploymentContractTests
     }
 
     private static int Count(string value, string fragment) => value.Split(fragment, StringSplitOptions.None).Length - 1;
+
+    private static string CloudRunService(string terraform, string name)
+    {
+        var marker = $"resource \"google_cloud_run_v2_service\" \"{name}\"";
+        var start = terraform.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Missing Cloud Run service {name}.");
+        var nextService = terraform.IndexOf("resource \"google_cloud_run_v2_service\"", start + marker.Length, StringComparison.Ordinal);
+        var nextIam = terraform.IndexOf("resource \"google_cloud_run_v2_service_iam_member\"", start + marker.Length, StringComparison.Ordinal);
+        var end = new[] { nextService, nextIam }.Where(index => index >= 0).DefaultIfEmpty(terraform.Length).Min();
+        return terraform[start..end];
+    }
 
     private static string FindRoot()
     {

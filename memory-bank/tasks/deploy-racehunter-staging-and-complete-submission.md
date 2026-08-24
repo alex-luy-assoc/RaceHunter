@@ -229,7 +229,7 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
   **Evidence Boundary**: The immutable candidate can now be qualified locally from a clean committed checkout and emits an exact, default-deny Preflight request. No Google credential use, authenticated API call, billable mutation, image publication, state migration, Terraform plan/apply, deployment, staging smoke, demo, cleanup, or destruction occurred.
 - [ ] Phase 4: After fresh credential, billable-resource, and deployment approvals, prepare and deploy staging and prove live Gemini plus Google Cloud integrations.
 
-  **Recovery checkpoint (2026-08-24)**: Foundation remained complete and the three immutable images were published. The first application apply partially created 40 managed resources before Cloud SQL rejected `db-f1-micro` under the PostgreSQL 17 `ENTERPRISE_PLUS` default and Billing Budgets rejected a user access token without an explicit quota project. Approved read-only reconciliation recorded 41 Terraform addresses (40 managed plus the project data source), 18 planned managed addresses still absent, and refresh drift without locking or mutation. RED contracts now protect explicit Cloud SQL `ENTERPRISE` edition and Google-provider quota-project routing; the corrected Terraform passes focused architecture tests and pinned Terraform formatting, isolated initialization, and validation. The stale saved plan and every Plan/Deploy approval remain invalid; recovery must create a new commit-bound qualification and exact plan gate without repeating Foundation provisioning or image publication.
+  **Recovery checkpoint (2026-08-24)**: Foundation remains complete and the three immutable images remain reusable because their Docker build inputs have not changed. The first application apply partially created 40 managed resources before Cloud SQL rejected `db-f1-micro` under the PostgreSQL 17 `ENTERPRISE_PLUS` default and Billing Budgets rejected a user access token without an explicit quota project. After those defects were corrected, the exact recovery apply exposed a second ordering defect: the reference-target Cloud Run service began before its `latest` database secret version existed. Read-only reconciliation now records 51 Terraform addresses, including both SQL stacks, both database secret versions, the budget, and the reference-target service, without state locking or mutation. RED→GREEN contracts require every Cloud Run service to depend explicitly on each generated secret version it consumes; the corrected Terraform passes the 14 focused deployment contracts, all 49 architecture contracts, and pinned Terraform formatting, isolated initialization, and validation. Every stale saved plan and Plan/Deploy approval remains invalid; recovery must create a new commit-bound exact plan gate without repeating Foundation provisioning or image publication.
 - [ ] Phase 5: Run the golden-path smoke, record a separate unedited sub-four-minute demo, reconcile environment-qualified evidence, and complete the submission checklist.
 
 ## Creative Phases
@@ -260,9 +260,13 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 **Status**: IN_PROGRESS
 **Started**: 2026-08-24T12:41:35Z
 **Completed**: —
-**Output**: Partial-apply state reconciled read-only; recovery contracts are GREEN; pinned Terraform format/init/validate pass; the focused recovery suite passes 14/14. Commit-bound checkpoint regeneration remains.
+**Output**: Second partial apply reconciled read-only to 51 addresses; Cloud Run secret-version ordering contract delivered RED→GREEN; pinned Terraform format/init/validate, 14/14 focused deployment contracts, and 49/49 architecture contracts pass. Commit-bound release checkpoint regeneration remains.
 
 ### Completed Steps
+- Step 3 Recovery TDD (secret ordering): COMPLETE (2026-08-24T16:05:00Z) - RED reproduced the missing Cloud Run-to-secret-version edge; explicit dependencies for database, demo-control, and OTel versions delivered GREEN for API, worker, and reference target.
+- Step 7 Recovery Verification (secret ordering): COMPLETE (2026-08-24T16:08:00Z) - Focused Phase Five contracts 14/14 PASS; full architecture contracts 49/49 PASS; pinned Terraform 1.14.4 fmt, isolated init without backend, and validate PASS.
+- Step 8 Recovery Review (secret ordering): COMPLETE (2026-08-24T16:09:00Z) - Minimal ordering-only diff reviewed; no credential, IAM, API, image, state, or direct cloud operation added.
+- Step 9 Recovery Documentation (secret ordering): COMPLETE (2026-08-24T16:09:00Z) - Durable Phase 4 recovery and resumption notes updated for the 51-address reconciliation checkpoint.
 - Step 3 Recovery TDD: COMPLETE (2026-08-24T12:41:35Z) - RED contracts reproduced the Cloud SQL edition/tier and Billing Budgets quota-project failures; explicit `ENTERPRISE` and provider user-project routing delivered GREEN.
 - Step 7 Recovery Verification: COMPLETE (2026-08-24T13:07:56Z) - Pinned Terraform fmt/init/validate PASS; focused architecture recovery suite 14/14 PASS; container architecture suite 47/48 with only the Windows-only command-shim contract excluded on Linux.
 - Step 8 Recovery Review: COMPLETE (2026-08-24T13:07:56Z) - Diff review PASS; no credential, IAM, API, image, state, or cloud mutation added by the correction.
@@ -332,13 +336,14 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 - Documentation Agent: COMPLETE (2026-08-19T16:23:00Z) - Updated inline documentation, README, techContext, and systemPatterns.
 
 ### Guard & Recovery Log
+- 2026-08-24: The second exact apply stopped without retry after Cloud Run evaluated a `latest` secret before Terraform had created its version. Read-only reconciliation found 51 addresses and no inspection mutation. All three Cloud Run resources now explicitly depend on every generated Secret Manager version they consume, preventing parallel creation from racing database, demo-control, or OTel materialization.
 - 2026-08-24: The live generated bootstrap `backend.gcs.tf` exposed a pre-existing worktree-coupled contract. The test now uses an isolated temporary bootstrap copy, preserving the real post-Foundation operator file while verifying default-deny materialization behavior.
 - 2026-08-24: Full offline solution verification was blocked by NuGet repository-signature network access and incomplete sandbox package probing. The official .NET 10 SDK container built the architecture suite; 47/48 passed, with only the Windows-only command-shim contract inapplicable on Linux. The exact recovery subset passed 14/14.
 
 ### Resumption Notes
 **Can Resume**: YES
 **Resume From**: Phase 4 recovery via `/ala:build deploy-racehunter-staging-and-complete-submission`
-**Notes**: Foundation and immutable image publication are complete and must not be repeated. The partial application apply was reconciled read-only. The tracked Terraform correction invalidates the old commit, saved plan, and Plan/Deploy approvals; resume from the fresh commit-bound local qualification and exact Plan gate. No authenticated cloud action is authorized until that new request is approved.
+**Notes**: Foundation and immutable image publication are complete and must not be repeated. The second partial application apply was reconciled read-only to 51 Terraform addresses. The tracked secret-ordering correction invalidates every prior recovery commit binding, saved plan, and Plan/Deploy approval; resume from a fresh commit-bound local qualification and exact Plan gate. No authenticated cloud action is authorized until that request is approved.
 
 ## Plan Critique
 
