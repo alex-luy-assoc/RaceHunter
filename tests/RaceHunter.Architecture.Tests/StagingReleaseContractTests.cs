@@ -206,34 +206,46 @@ public sealed class StagingReleaseContractTests
     [Fact]
     public void Bootstrap_migration_requires_explicit_local_backend_template_materialization_first()
     {
-        var bootstrap = Path.Combine(Root, "deploy", "terraform", "bootstrap");
-        var generatedBackend = Path.Combine(bootstrap, "backend.gcs.tf");
-        Assert.False(File.Exists(generatedBackend));
-        var result = RunPowerShell($$"""
-            Import-Module '{{Escape(ModulePath)}}' -Force
-            $descriptor = New-StagingBackendMigrationPlan -StateBucketName 'racehunter-staging-tfstate' -BootstrapDirectory '{{Escape(bootstrap)}}' -ApplicationDirectory '{{Escape(Path.Combine(Root, "deploy", "terraform"))}}'
-            [pscustomobject]@{
-                action = $descriptor.backendMaterialization.action
-                source = $descriptor.backendMaterialization.sourcePath
-                destination = $descriptor.backendMaterialization.destinationPath
-                executesAction = [bool]$descriptor.backendMaterialization.executesAction
-                requiredBefore = $descriptor.backendMaterialization.requiredBeforeStep
-                migrationRequiresDestination = [bool]$descriptor.steps[1].backendMaterializationRequired
-                migrationDestination = $descriptor.steps[1].requiredBackendPath
-                destinationExists = Test-Path -LiteralPath $descriptor.backendMaterialization.destinationPath
-            } | ConvertTo-Json -Compress
-            """);
+        var trackedBootstrap = Path.Combine(Root, "deploy", "terraform", "bootstrap");
+        var isolatedBootstrap = Path.Combine(Path.GetTempPath(), $"racehunter-backend-contract-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(isolatedBootstrap);
+        try
+        {
+            File.Copy(
+                Path.Combine(trackedBootstrap, "backend.gcs.tf.example"),
+                Path.Combine(isolatedBootstrap, "backend.gcs.tf.example"));
+            var generatedBackend = Path.Combine(isolatedBootstrap, "backend.gcs.tf");
+            Assert.False(File.Exists(generatedBackend));
+            var result = RunPowerShell($$"""
+                Import-Module '{{Escape(ModulePath)}}' -Force
+                $descriptor = New-StagingBackendMigrationPlan -StateBucketName 'racehunter-staging-tfstate' -BootstrapDirectory '{{Escape(isolatedBootstrap)}}' -ApplicationDirectory '{{Escape(Path.Combine(Root, "deploy", "terraform"))}}'
+                [pscustomobject]@{
+                    action = $descriptor.backendMaterialization.action
+                    source = $descriptor.backendMaterialization.sourcePath
+                    destination = $descriptor.backendMaterialization.destinationPath
+                    executesAction = [bool]$descriptor.backendMaterialization.executesAction
+                    requiredBefore = $descriptor.backendMaterialization.requiredBeforeStep
+                    migrationRequiresDestination = [bool]$descriptor.steps[1].backendMaterializationRequired
+                    migrationDestination = $descriptor.steps[1].requiredBackendPath
+                    destinationExists = Test-Path -LiteralPath $descriptor.backendMaterialization.destinationPath
+                } | ConvertTo-Json -Compress
+                """);
 
-        Assert.Equal(0, result.ExitCode);
-        using var json = JsonDocument.Parse(result.Output);
-        Assert.Equal("MaterializeBackendTemplate", json.RootElement.GetProperty("action").GetString());
-        Assert.Equal(Path.Combine(bootstrap, "backend.gcs.tf.example"), json.RootElement.GetProperty("source").GetString());
-        Assert.Equal(Path.GetFullPath(generatedBackend), json.RootElement.GetProperty("destination").GetString());
-        Assert.False(json.RootElement.GetProperty("executesAction").GetBoolean());
-        Assert.Equal("MigrateBootstrapAndConfigureApplicationState", json.RootElement.GetProperty("requiredBefore").GetString());
-        Assert.True(json.RootElement.GetProperty("migrationRequiresDestination").GetBoolean());
-        Assert.Equal(Path.GetFullPath(generatedBackend), json.RootElement.GetProperty("migrationDestination").GetString());
-        Assert.False(json.RootElement.GetProperty("destinationExists").GetBoolean());
+            Assert.Equal(0, result.ExitCode);
+            using var json = JsonDocument.Parse(result.Output);
+            Assert.Equal("MaterializeBackendTemplate", json.RootElement.GetProperty("action").GetString());
+            Assert.Equal(Path.Combine(isolatedBootstrap, "backend.gcs.tf.example"), json.RootElement.GetProperty("source").GetString());
+            Assert.Equal(Path.GetFullPath(generatedBackend), json.RootElement.GetProperty("destination").GetString());
+            Assert.False(json.RootElement.GetProperty("executesAction").GetBoolean());
+            Assert.Equal("MigrateBootstrapAndConfigureApplicationState", json.RootElement.GetProperty("requiredBefore").GetString());
+            Assert.True(json.RootElement.GetProperty("migrationRequiresDestination").GetBoolean());
+            Assert.Equal(Path.GetFullPath(generatedBackend), json.RootElement.GetProperty("migrationDestination").GetString());
+            Assert.False(json.RootElement.GetProperty("destinationExists").GetBoolean());
+        }
+        finally
+        {
+            Directory.Delete(isolatedBootstrap, recursive: true);
+        }
     }
 
     [Fact]

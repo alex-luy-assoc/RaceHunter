@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace RaceHunter.Architecture.Tests;
@@ -70,6 +71,24 @@ public sealed class PhaseFiveDeploymentContractTests
         Assert.DoesNotContain("nullable", billingVariable, StringComparison.Ordinal);
         Assert.DoesNotContain("\n  count ", terraform[terraform.IndexOf("resource \"google_billing_budget\" \"staging\"", StringComparison.Ordinal)..], StringComparison.Ordinal);
         Assert.Contains("billing_account = var.billing_account_id", terraform, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Terraform_routes_user_access_token_quota_through_the_explicit_staging_project()
+    {
+        var providers = File.ReadAllText(Path.Combine(Root, "deploy", "terraform", "providers.tf"));
+
+        Assert.Matches(@"billing_project\s*=\s*var\.project_id", providers);
+        Assert.Matches(@"user_project_override\s*=\s*true", providers);
+    }
+
+    [Fact]
+    public void Terraform_pins_cost_bounded_cloud_sql_to_the_enterprise_edition()
+    {
+        var terraform = File.ReadAllText(Path.Combine(Root, "deploy", "terraform", "main.tf"));
+
+        Assert.Equal(2, Regex.Matches(terraform, "edition\\s*=\\s*\"ENTERPRISE\"").Count);
+        Assert.Equal(2, Count(terraform, "tier                  = \"db-f1-micro\""));
     }
 
     [Fact]

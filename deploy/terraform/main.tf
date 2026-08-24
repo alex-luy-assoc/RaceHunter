@@ -20,6 +20,7 @@ resource "google_sql_database_instance" "main" {
   deletion_protection = var.deletion_protection
 
   settings {
+    edition               = "ENTERPRISE"
     tier                  = "db-f1-micro"
     availability_type     = "ZONAL"
     disk_type             = "PD_SSD"
@@ -44,6 +45,7 @@ resource "google_sql_database_instance" "target" {
   deletion_protection = var.deletion_protection
 
   settings {
+    edition               = "ENTERPRISE"
     tier                  = "db-f1-micro"
     availability_type     = "ZONAL"
     disk_type             = "PD_SSD"

@@ -228,6 +228,8 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
   **Code Review**: APPROVED after two review-remediation loops and one post-commit qualification-regression loop; code security PASS; 230 resolved dependency/version pairs audited with no vulnerable packages or upgrades required.
   **Evidence Boundary**: The immutable candidate can now be qualified locally from a clean committed checkout and emits an exact, default-deny Preflight request. No Google credential use, authenticated API call, billable mutation, image publication, state migration, Terraform plan/apply, deployment, staging smoke, demo, cleanup, or destruction occurred.
 - [ ] Phase 4: After fresh credential, billable-resource, and deployment approvals, prepare and deploy staging and prove live Gemini plus Google Cloud integrations.
+
+  **Recovery checkpoint (2026-08-24)**: Foundation remained complete and the three immutable images were published. The first application apply partially created 40 managed resources before Cloud SQL rejected `db-f1-micro` under the PostgreSQL 17 `ENTERPRISE_PLUS` default and Billing Budgets rejected a user access token without an explicit quota project. Approved read-only reconciliation recorded 41 Terraform addresses (40 managed plus the project data source), 18 planned managed addresses still absent, and refresh drift without locking or mutation. RED contracts now protect explicit Cloud SQL `ENTERPRISE` edition and Google-provider quota-project routing; the corrected Terraform passes focused architecture tests and pinned Terraform formatting, isolated initialization, and validation. The stale saved plan and every Plan/Deploy approval remain invalid; recovery must create a new commit-bound qualification and exact plan gate without repeating Foundation provisioning or image publication.
 - [ ] Phase 5: Run the golden-path smoke, record a separate unedited sub-four-minute demo, reconcile environment-qualified evidence, and complete the submission checklist.
 
 ## Creative Phases
@@ -241,26 +243,31 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 
 ## Execution State
 
-**Build Status**: IDLE
-**Current Build**: Phase 3: Qualify the immutable release candidate locally and stop at the credential-use gate with a complete preflight request (deploy-racehunter-staging-and-complete-submission)
-**Build Started**: 2026-08-19T18:01:49Z
+**Build Status**: IN_PROGRESS
+**Current Build**: Phase 4: Recover the partial staging deployment, rebuild the exact application plan binding, and deploy only after fresh approval (deploy-racehunter-staging-and-complete-submission)
+**Build Started**: 2026-08-23T14:00:00Z
 **Last Completed**: Phase 3: Qualify the immutable release candidate locally and stop at the credential-use gate with a complete preflight request
-**Phase Number**: 3 of 5
+**Phase Number**: 4 of 5
 **Is Multi-Phase**: YES
-**Can Resume**: NO
+**Can Resume**: YES
 **PLAN BACKEND**: anthropic — configured
 **BRAINSTORM CRITIQUE**: skipped — codex unavailable (unresolved:no-companion, glob=∅; `C:\Users\alexa\.claude\plugins` absent)
 **TDD BACKEND**: anthropic — configured
 **CODE REVIEW BACKEND**: anthropic — codex unavailable (`unresolved:no-companion`; `C:\Users\alexa\.claude\plugins` absent); auto fallback
 
 ### Current Build Step
-**Step**: Step 11 - Phase Git Completion
-**Status**: COMPLETE
-**Started**: 2026-08-19T18:48:17Z
-**Completed**: 2026-08-19T18:58:01Z
-**Output**: Phase 3 artifacts and durable state prepared after the Windows command-shim qualification regression was fixed and reverified.
+**Step**: Step 11 - Recovery Git Completion
+**Status**: IN_PROGRESS
+**Started**: 2026-08-24T12:41:35Z
+**Completed**: —
+**Output**: Partial-apply state reconciled read-only; recovery contracts are GREEN; pinned Terraform format/init/validate pass; the focused recovery suite passes 14/14. Commit-bound checkpoint regeneration remains.
 
 ### Completed Steps
+- Step 3 Recovery TDD: COMPLETE (2026-08-24T12:41:35Z) - RED contracts reproduced the Cloud SQL edition/tier and Billing Budgets quota-project failures; explicit `ENTERPRISE` and provider user-project routing delivered GREEN.
+- Step 7 Recovery Verification: COMPLETE (2026-08-24T13:07:56Z) - Pinned Terraform fmt/init/validate PASS; focused architecture recovery suite 14/14 PASS; container architecture suite 47/48 with only the Windows-only command-shim contract excluded on Linux.
+- Step 8 Recovery Review: COMPLETE (2026-08-24T13:07:56Z) - Diff review PASS; no credential, IAM, API, image, state, or cloud mutation added by the correction.
+- Step 9 Recovery Documentation: COMPLETE (2026-08-24T13:07:56Z) - README and durable Phase 4 recovery checkpoint updated.
+- Step 10 Recovery Memory Bank: COMPLETE (2026-08-24T13:07:56Z) - Stale Plan/Deploy bindings remain invalid and resumption is bound to a fresh corrected commit.
 - Step 0.5 Git Setup: COMPLETE (2026-08-19T18:01:49Z) - Existing clean worktree verified on the feature branch.
 - Step 0.6 Phase Gate: COMPLETE (2026-08-19T18:01:49Z) - Taxonomy clean, five-phase roadmap populated, and all creative references verified.
 - Step 1 Read Task Context: COMPLETE (2026-08-19T18:01:49Z) - Phase 3 of 5 selected.
@@ -306,6 +313,7 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 - BRAINSTORM CRITIQUE: skipped — codex unavailable (unresolved:no-companion, glob=∅; `C:\Users\alexa\.claude\plugins` absent).
 
 ### Sub-Agents
+- TDD Agent (Phase 4 recovery): COMPLETE (2026-08-24T12:41:35Z) - Cloud SQL edition and quota-project contracts delivered RED→GREEN; partial apply reconciled to 41 tracked addresses and 18 absent managed addresses.
 - TDD Agent (Phase 3): COMPLETE (2026-08-19T18:56:00Z) - 8 focused contracts; credential-free local qualification, isolated child environment, exact fresh Preflight binding, and Windows command-shim execution delivered RED→GREEN.
 - Batch Test Agent (Phase 3): COMPLETE (2026-08-19T18:56:00Z) - 8/8 focused tests PASS over four iterations; no batch-worker fixes required.
 - Build Verifier Agent (Phase 3): COMPLETE (2026-08-19T18:57:00Z) - 261/261 tests; .NET/web builds, web lint, and diff check PASS.
@@ -324,12 +332,13 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 - Documentation Agent: COMPLETE (2026-08-19T16:23:00Z) - Updated inline documentation, README, techContext, and systemPatterns.
 
 ### Guard & Recovery Log
-(none; no artifact-seam recovery was required)
+- 2026-08-24: The live generated bootstrap `backend.gcs.tf` exposed a pre-existing worktree-coupled contract. The test now uses an isolated temporary bootstrap copy, preserving the real post-Foundation operator file while verifying default-deny materialization behavior.
+- 2026-08-24: Full offline solution verification was blocked by NuGet repository-signature network access and incomplete sandbox package probing. The official .NET 10 SDK container built the architecture suite; 47/48 passed, with only the Windows-only command-shim contract inapplicable on Linux. The exact recovery subset passed 14/14.
 
 ### Resumption Notes
-**Can Resume**: NO
-**Resume From**: Phase 4 via `/ala:build deploy-racehunter-staging-and-complete-submission`
-**Notes**: Phase 3 is complete after the candidate commit is locally qualified and its exact default-deny Preflight request is preserved in gitignored release state. Phase 4 requires fresh explicit credential, billable-resource, and deployment approvals at their exact gates. Google credential use, authenticated cloud APIs, billable mutation, image publication, state migration, Terraform plan/apply, deployment, staging smoke, demo, cleanup, and destruction remain unauthorized until those independent approvals are obtained.
+**Can Resume**: YES
+**Resume From**: Phase 4 recovery via `/ala:build deploy-racehunter-staging-and-complete-submission`
+**Notes**: Foundation and immutable image publication are complete and must not be repeated. The partial application apply was reconciled read-only. The tracked Terraform correction invalidates the old commit, saved plan, and Plan/Deploy approvals; resume from the fresh commit-bound local qualification and exact Plan gate. No authenticated cloud action is authorized until that new request is approved.
 
 ## Plan Critique
 
