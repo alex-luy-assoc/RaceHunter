@@ -170,7 +170,7 @@ Save-Progress 'SmokeStarted'
 
 $finding = Invoke-RestMethod -Method Get -Uri (ApiUri "/api/findings/$($progress.findingId)") -TimeoutSec (Remaining-TimeoutSeconds)
 if ($finding.successMessage -ne 'Race condition verified — reproduced 3/3 and minimized to 2 actors.') { throw 'Golden-path finding proof did not match.' }
-if ($finding.reproductions.Count -ne 3 -or ($finding.reproductions | Where-Object outcome -ne 'Fail').Count -ne 0) { throw 'Measured 3/3 reproduction proof is incomplete.' }
+if (@($finding.reproductions).Count -ne 3 -or @($finding.reproductions | Where-Object outcome -ne 'Fail').Count -ne 0) { throw 'Measured 3/3 reproduction proof is incomplete.' }
 if ($finding.replayArtifact.actorCount -ne 2) { throw 'Replay artifact was not minimized to two actors.' }
 
 $comparison = Invoke-RestMethod -Method Post -Uri (ApiUri "/api/findings/$($progress.findingId)/replays") -ContentType 'application/json' -TimeoutSec (Remaining-TimeoutSeconds) -Body (@{

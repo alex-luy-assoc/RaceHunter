@@ -336,6 +336,10 @@ public sealed class StagingReleaseContractTests
         Assert.Contains("SmokeComplete", coordinator, StringComparison.Ordinal);
         Assert.Contains("DemoComplete", coordinator, StringComparison.Ordinal);
         Assert.Contains("AmbiguousMutation", coordinator, StringComparison.Ordinal);
+        Assert.Contains("ExistingFindingCompletionResume", coordinator, StringComparison.Ordinal);
+        Assert.Contains("existingRunId", coordinator, StringComparison.Ordinal);
+        Assert.Contains("existingFindingId", coordinator, StringComparison.Ordinal);
+        Assert.Contains("destination progress identity drifted", coordinator, StringComparison.Ordinal);
         Assert.Contains("ProgressPath", smoke, StringComparison.Ordinal);
         Assert.Contains("huntCreateStarted", smoke, StringComparison.Ordinal);
         Assert.Contains("deadlineAtUtc", smoke, StringComparison.Ordinal);
@@ -379,6 +383,31 @@ public sealed class StagingReleaseContractTests
         Assert.False(json.RootElement.GetProperty("smoke").GetBoolean());
         Assert.False(json.RootElement.GetProperty("demo").GetBoolean());
         Assert.False(json.RootElement.GetProperty("deploy").GetBoolean());
+    }
+
+    [Fact]
+    public void Smoke_reproduction_count_is_strict_mode_safe_when_no_attempts_are_non_failures()
+    {
+        var smoke = File.ReadAllText(Path.Combine(Root, "deploy", "scripts", "smoke.ps1"));
+        Assert.Contains("@($finding.reproductions | Where-Object outcome -ne 'Fail').Count", smoke, StringComparison.Ordinal);
+
+        var result = RunPowerShell("""
+            Set-StrictMode -Version Latest
+            $finding = [pscustomobject]@{ reproductions = @(
+                [pscustomobject]@{ outcome = 'Fail' },
+                [pscustomobject]@{ outcome = 'Fail' },
+                [pscustomobject]@{ outcome = 'Fail' }
+            ) }
+            [pscustomobject]@{
+                total = @($finding.reproductions).Count
+                nonFailures = @($finding.reproductions | Where-Object outcome -ne 'Fail').Count
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Equal(3, json.RootElement.GetProperty("total").GetInt32());
+        Assert.Equal(0, json.RootElement.GetProperty("nonFailures").GetInt32());
     }
 
     [Fact]

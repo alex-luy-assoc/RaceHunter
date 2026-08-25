@@ -38,7 +38,7 @@ if (-not (Test-Path -LiteralPath $requestPath -PathType Leaf) -or (Get-FileSha $
     throw 'ReleaseCompletion request bytes do not match the exact approved SHA-256.'
 }
 $request = Read-Json $requestPath
-if ([string]$request.schemaVersion -cne '1.0' -or [string]$request.stage -cnotin @('ReleaseCompletion', 'RecoveryCompletion') -or $request.valid -isnot [bool] -or -not $request.valid) {
+if ([string]$request.schemaVersion -cne '1.0' -or [string]$request.stage -cnotin @('ReleaseCompletion', 'RecoveryCompletion', 'ExistingFindingCompletionResume') -or $request.valid -isnot [bool] -or -not $request.valid) {
     throw 'ReleaseCompletion request is invalid or default denied.'
 }
 
@@ -64,13 +64,20 @@ $smokeResultPath = Join-Path $artifactDirectory 'smoke-result.json'
 $demoProgressPath = Join-Path $artifactDirectory 'demo-progress.json'
 $demoResultPath = Join-Path $artifactDirectory 'demo-result.json'
 $demoArtifactDirectory = Join-Path $artifactDirectory 'demo-artifacts'
-$isRecovery = [string]$request.stage -ceq 'RecoveryCompletion'
+$isExistingFindingResume = [string]$request.stage -ceq 'ExistingFindingCompletionResume'
+$isRecovery = [string]$request.stage -ceq 'RecoveryCompletion' -or $isExistingFindingResume
 if ($isRecovery) {
     if ([string]$request.recovery.existingHuntId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
         throw 'RecoveryCompletion requires one exact existing hunt ID.'
     }
     if ([string]$request.recovery.existingPlanVersion -notmatch '^plan-[a-f0-9]{16}$') {
         throw 'RecoveryCompletion requires one exact existing plan version.'
+    }
+    if ($isExistingFindingResume -and [string]$request.recovery.existingRunId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
+        throw 'ExistingFindingCompletionResume requires one exact existing run ID.'
+    }
+    if ($isExistingFindingResume -and [string]$request.recovery.existingFindingId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
+        throw 'ExistingFindingCompletionResume requires one exact existing finding ID.'
     }
 }
 if ($isRecovery -and -not (Test-Path -LiteralPath $smokeProgressPath -PathType Leaf)) {
@@ -79,11 +86,35 @@ if ($isRecovery -and -not (Test-Path -LiteralPath $smokeProgressPath -PathType L
         throw 'RecoveryCompletion source progress drifted from the approved bytes.'
     }
     $source = Read-Json $sourcePath
-    if ([string]$source.huntId -cne [string]$request.recovery.existingHuntId -or -not [string]::IsNullOrWhiteSpace([string]$source.runId)) {
+    if ([string]$source.huntId -cne [string]$request.recovery.existingHuntId -or [bool]$source.huntCreateStarted) {
+        throw 'RecoveryCompletion source hunt identity drifted.'
+    }
+    if ($isExistingFindingResume) {
+        if ([string]$source.planVersion -cne [string]$request.recovery.existingPlanVersion -or
+            [string]$source.runId -cne [string]$request.recovery.existingRunId -or
+            [string]$source.findingId -cne [string]$request.recovery.existingFindingId) {
+            throw 'ExistingFindingCompletionResume source plan, run, or finding identity drifted.'
+        }
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace([string]$source.runId)) {
         throw 'RecoveryCompletion may resume only the exact existing pre-run hunt.'
     }
     $source.planVersion = [string]$request.recovery.existingPlanVersion
+    if ($isExistingFindingResume) {
+        $source.runId = [string]$request.recovery.existingRunId
+        $source.findingId = [string]$request.recovery.existingFindingId
+    }
     Write-JsonAtomic -Path $smokeProgressPath -Value $source
+}
+if ($isExistingFindingResume) {
+    $destination = Read-Json $smokeProgressPath
+    if ($null -eq $destination -or [bool]$destination.huntCreateStarted -or
+        [string]$destination.huntId -cne [string]$request.recovery.existingHuntId -or
+        [string]$destination.planVersion -cne [string]$request.recovery.existingPlanVersion -or
+        [string]$destination.runId -cne [string]$request.recovery.existingRunId -or
+        [string]$destination.findingId -cne [string]$request.recovery.existingFindingId) {
+        throw 'ExistingFindingCompletionResume destination progress identity drifted.'
+    }
 }
 function Save-State([string] $Status, [string] $Failure = $null) {
     $state.status = $Status
