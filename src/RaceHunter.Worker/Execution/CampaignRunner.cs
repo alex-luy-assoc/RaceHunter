@@ -238,6 +238,19 @@ internal sealed class CampaignRunner(
         {
             throw;
         }
+        catch (TaskCanceledException exception) when (
+            !timeout.IsCancellationRequested &&
+            !durableCancellation.IsCancellationRequested &&
+            TargetTransportFailure.IsHttpClientTimeout(exception, cancellationToken))
+        {
+            var durable = await runs.GetAsync(runId, CancellationToken.None) ?? run;
+            if (durable.IsActive)
+            {
+                RecordRetryableTargetTimeout(durable, DateTime.UtcNow);
+                await runs.SaveAsync(durable, CancellationToken.None);
+            }
+            throw;
+        }
         catch (TargetSafetyException exception)
         {
             var durable = await runs.GetAsync(runId, CancellationToken.None) ?? run;
@@ -281,6 +294,12 @@ internal sealed class CampaignRunner(
         InvalidOperationException => "orchestration",
         _ => "worker"
     };
+
+    internal static void RecordRetryableTargetTimeout(ExperimentRun run, DateTime nowUtc)
+    {
+        if (run.IsActive)
+            run.AppendEvent("target-timeout-retry", "The reference target timed out before the campaign budget expired; the same idempotent work may be retried.", nowUtc);
+    }
 
     private static async Task<Guid?> FinalizeFindingAsync(
         ExperimentRun run,

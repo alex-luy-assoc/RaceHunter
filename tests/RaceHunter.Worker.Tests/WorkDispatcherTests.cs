@@ -64,6 +64,51 @@ public sealed class WorkDispatcherTests
     }
 
     [Fact]
+    public async Task Http_client_timeout_is_a_retryable_target_failure()
+    {
+        var inbox = new FakeInbox { Acquire = new WorkAcquireResult(WorkAcquireOutcome.Acquired, 1, null) };
+        var campaign = new FakeCampaignHandler { Failure = new TaskCanceledException("The request timed out.", new TimeoutException()) };
+        var dispatcher = CreateDispatcher(inbox, new FakePlanHandler(), campaign: campaign);
+
+        var outcome = await dispatcher.DispatchAsync(Message("RunRequested"), "message-target-timeout", CancellationToken.None);
+
+        Assert.Equal(WorkDispatchOutcome.Retry, outcome);
+        Assert.Equal(WorkFailureCategory.Target, inbox.LastFailure!.Category);
+        Assert.True(inbox.LastFailure.Transient);
+        Assert.True(inbox.LastFailure.OperationIsIdempotent);
+        Assert.Equal("target request timed out", inbox.LastFailure.SanitizedDiagnostic);
+    }
+
+    [Fact]
+    public async Task Caller_cancellation_is_not_recorded_as_a_target_timeout()
+    {
+        var inbox = new FakeInbox { Acquire = new WorkAcquireResult(WorkAcquireOutcome.Acquired, 1, null) };
+        var plan = new FakePlanHandler { WaitForCancellation = true };
+        var dispatcher = CreateDispatcher(inbox, plan);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            dispatcher.DispatchAsync(Message("PlanRequested"), "message-caller-cancelled", cancellation.Token));
+
+        Assert.Equal(0, inbox.FailureCalls);
+        Assert.Null(inbox.LastFailure);
+    }
+
+    [Fact]
+    public async Task Planning_task_cancellation_is_not_misclassified_as_reference_target_timeout()
+    {
+        var inbox = new FakeInbox { Acquire = new WorkAcquireResult(WorkAcquireOutcome.Acquired, 1, null) };
+        var plan = new FakePlanHandler { Failure = new TaskCanceledException("The request timed out.", new TimeoutException()) };
+        var dispatcher = CreateDispatcher(inbox, plan);
+
+        _ = await dispatcher.DispatchAsync(Message("PlanRequested"), "message-planning-timeout", CancellationToken.None);
+
+        Assert.Equal(WorkFailureCategory.Cancellation, inbox.LastFailure!.Category);
+        Assert.False(inbox.LastFailure.Transient);
+    }
+
+    [Fact]
     public async Task Target_safety_denial_preserves_the_safety_authorization_failure_taxonomy()
     {
         var inbox = new FakeInbox { Acquire = new WorkAcquireResult(WorkAcquireOutcome.Acquired, 1, null) };
@@ -148,7 +193,8 @@ public sealed class WorkDispatcherTests
         FakeInbox inbox,
         FakePlanHandler plan,
         FakeSubjectStore? subjects = null,
-        int heartbeatMilliseconds = 1000)
+        int heartbeatMilliseconds = 1000,
+        FakeCampaignHandler? campaign = null)
     {
         var services = new ServiceCollection().AddSingleton<IWorkInbox>(inbox).BuildServiceProvider();
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
@@ -160,7 +206,7 @@ public sealed class WorkDispatcherTests
             inbox,
             new FakePublisher(),
             plan,
-            new FakeCampaignHandler(),
+            campaign ?? new FakeCampaignHandler(),
             subjects ?? new FakeSubjectStore(),
             configuration,
             services.GetRequiredService<IServiceScopeFactory>(),
@@ -202,7 +248,9 @@ public sealed class WorkDispatcherTests
 
     private sealed class FakeCampaignHandler : ICampaignWorkHandler
     {
-        public Task ExecuteAsync(Guid runId, Guid workId, string leaseOwner, WorkCheckpoint? checkpoint, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Exception? Failure { get; init; }
+        public Task ExecuteAsync(Guid runId, Guid workId, string leaseOwner, WorkCheckpoint? checkpoint, CancellationToken cancellationToken) =>
+            Failure is null ? Task.CompletedTask : Task.FromException(Failure);
     }
 
     private sealed class FakeSubjectStore : IWorkSubjectStore

@@ -17,6 +17,19 @@ namespace RaceHunter.Worker.Tests;
 public sealed class CampaignFindingTests
 {
     [Fact]
+    public void Retryable_target_timeout_preserves_the_active_run_for_redelivery()
+    {
+        var run = ExperimentRun.Queue(Guid.NewGuid(), ExperimentBudget.PublicSandbox, DateTime.UtcNow);
+        run.Start(DateTime.UtcNow);
+
+        CampaignRunner.RecordRetryableTargetTimeout(run, DateTime.UtcNow);
+
+        Assert.Equal(RunStatus.Running, run.Status);
+        Assert.Null(run.CompletedAtUtc);
+        Assert.Equal("target-timeout-retry", Assert.Single(run.Events).Kind);
+    }
+
+    [Fact]
     public void Replay_candidate_preserves_the_exact_failed_seeded_jitter_schedule()
     {
         var settings = new CampaignSettings(3, "seeded-jitter", 25);

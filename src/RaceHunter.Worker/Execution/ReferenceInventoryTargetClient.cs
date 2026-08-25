@@ -12,6 +12,8 @@ namespace RaceHunter.Worker.Execution;
 
 internal sealed class ReferenceInventoryTargetClient(HttpClient client)
 {
+    internal static TimeSpan RequestTimeout { get; } = TimeSpan.FromSeconds(30);
+
     public async Task ResetAsync(ReplayTargetMode mode, string demoControlKey, CancellationToken cancellationToken)
         => await ResetAsync(mode, demoControlKey, null, cancellationToken);
 

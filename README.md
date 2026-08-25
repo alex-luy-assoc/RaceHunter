@@ -79,6 +79,8 @@ Terraform is split into a protected foundation root at `deploy/terraform/bootstr
 
 Only the API grants `allUsers`; worker and target keep internet-routable `run.app` ingress so authenticated service-to-service calls work without an absent VPC route, while scoped `run.invoker` IAM still denies unauthenticated callers. No service-account keys are created. Pub/Sub and API use their exact service identities and the worker service URL as the OIDC audience; the worker uses its identity and the exact target service URL for target calls. Staging caps the worker at one instance and one inbound request so its process-wide global/target semaphores are deployment-wide while still supporting 100 logical actors inside a campaign.
 
+The worker gives an authenticated reference-target request 30 seconds, leaving the remainder of the 90-second campaign budget for model, persistence, replay, and evidence work while tolerating a Cloud Run cold start. An `HttpClient`-shaped timeout during run work whose caller token was not cancelled is a retryable, idempotent target transport failure; the active run records a retry event without becoming terminal. Planning task cancellation and actual caller cancellation keep cancellation semantics and are not misreported as target timeouts.
+
 The staged-release entry point can safely initialize and inspect its gitignored local state without credentials or Google API access:
 
 ```powershell

@@ -12,6 +12,13 @@ namespace RaceHunter.Worker.Tests;
 public sealed class ReferenceInventoryTargetClientTests
 {
     [Fact]
+    public void Reference_target_timeout_allows_a_cloud_run_cold_start_within_the_campaign_budget()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(30), ReferenceInventoryTargetClient.RequestTimeout);
+        Assert.True(ReferenceInventoryTargetClient.RequestTimeout < TimeSpan.FromSeconds(90));
+    }
+
+    [Fact]
     public async Task Reference_operation_emits_executable_cross_observation_and_cardinality_evidence()
     {
         using var http = new HttpClient(new StubHandler()) { BaseAddress = new Uri("http://reference-target") };

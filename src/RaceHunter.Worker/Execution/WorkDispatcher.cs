@@ -100,7 +100,7 @@ internal sealed class WorkDispatcher(
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            var failure = Classify(exception, message.Kind);
+            var failure = Classify(exception, message.Kind, cancellationToken);
             logger.LogError(exception, "Work {WorkId} failed in category {Category} for subject {SubjectId}.",
                 message.WorkId, failure.Category, message.SubjectId);
             var kind = Enum.TryParse<WorkKind>(message.Kind, out var parsed) ? parsed : WorkKind.Unknown;
@@ -146,10 +146,12 @@ internal sealed class WorkDispatcher(
         }
     }
 
-    private static WorkFailure Classify(Exception exception, string kind) => exception switch
+    private static WorkFailure Classify(Exception exception, string kind, CancellationToken callerCancellation) => exception switch
     {
         ModelOutputException model => new WorkFailure(WorkFailureCategory.Model, model.Outcome == ModelOutcome.TransientFailure, true, model.Outcome.ToString()),
         HttpRequestException => new WorkFailure(WorkFailureCategory.Target, true, false, "target request failed"),
+        TaskCanceledException when kind == "RunRequested" && TargetTransportFailure.IsHttpClientTimeout(exception, callerCancellation) =>
+            new WorkFailure(WorkFailureCategory.Target, true, true, "target request timed out"),
         InvalidDataException => new WorkFailure(WorkFailureCategory.Poison, false, true, "unsupported work contract"),
         OperationCanceledException => new WorkFailure(WorkFailureCategory.Cancellation, false, true, "work cancelled"),
         DurableCancellationProbeException => new WorkFailure(WorkFailureCategory.Persistence, true, true, "cancellation probe failed"),

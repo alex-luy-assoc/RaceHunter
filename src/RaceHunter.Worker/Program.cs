@@ -98,7 +98,7 @@ var targetClient = builder.Services.AddHttpClient<ReferenceInventoryTargetClient
     var baseUrl = services.GetRequiredService<IConfiguration>()["ReferenceTarget:BaseUrl"]
         ?? throw new InvalidOperationException("ReferenceTarget:BaseUrl is required.");
     client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
-    client.Timeout = TimeSpan.FromSeconds(10);
+    client.Timeout = ReferenceInventoryTargetClient.RequestTimeout;
 });
 if (builder.Configuration.GetValue("ReferenceTarget:RequireAuthentication", false))
 {
