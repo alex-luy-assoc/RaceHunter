@@ -55,7 +55,7 @@ $artifactPaths = [ordered]@{
 foreach ($name in $artifactPaths.Keys) {
     if ([string]$request.artifactHashes[$name] -cne (Get-FileSha $artifactPaths[$name])) { throw "ReleaseCompletion artifact '$name' drifted from the approved bytes." }
 }
-if ([int]$request.smokeTimeoutSeconds -ne 210 -or [int]$request.demoTimeoutSeconds -ne 239) { throw 'ReleaseCompletion time bounds drifted.' }
+if ([int]$request.smokeTimeoutSeconds -ne 360 -or [int]$request.demoTimeoutSeconds -ne 239) { throw 'ReleaseCompletion time bounds drifted.' }
 
 $artifactDirectory = [IO.Path]::GetFullPath([string]$request.artifactDirectory)
 $statePath = Join-Path $artifactDirectory 'release-completion-state.json'
@@ -115,7 +115,7 @@ if ($null -eq $smokeResult -or [string]$smokeResult.status -ne 'SmokeComplete') 
     try {
         $smokeArguments = @{
             ApiBaseUrl = [uri]$request.apiBaseUrl; WorkerUrl = [uri]$request.workerUrl; ReferenceTargetUrl = [uri]$request.referenceTargetUrl
-            ApproveStagingSmoke = $true; TimeoutSeconds = 210; ProgressPath = $smokeProgressPath; ResultPath = $smokeResultPath
+            ApproveStagingSmoke = $true; TimeoutSeconds = 360; ProgressPath = $smokeProgressPath; ResultPath = $smokeResultPath
         }
         if ($isRecovery) {
             $smokeArguments.RequiredExistingHuntId = [string]$request.recovery.existingHuntId

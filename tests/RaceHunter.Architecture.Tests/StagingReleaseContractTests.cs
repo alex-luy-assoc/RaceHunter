@@ -343,6 +343,9 @@ public sealed class StagingReleaseContractTests
         Assert.Contains("RequiredExistingHuntId", smoke, StringComparison.Ordinal);
         Assert.Contains("RequiredExistingPlanVersion", smoke, StringComparison.Ordinal);
         Assert.Contains("ResetExpiredDeadlineForExistingHunt", smoke, StringComparison.Ordinal);
+        Assert.Contains("[ValidateRange(30, 360)] [int] $TimeoutSeconds = 360", smoke, StringComparison.Ordinal);
+        Assert.Contains("[int]$request.smokeTimeoutSeconds -ne 360", coordinator, StringComparison.Ordinal);
+        Assert.Contains("TimeoutSeconds = 360", coordinator, StringComparison.Ordinal);
         Assert.DoesNotContain("$_.Exception.Response.StatusCode.value__", smoke, StringComparison.Ordinal);
         Assert.Contains("RACEHUNTER_DEMO_PROGRESS_PATH", browser, StringComparison.Ordinal);
         Assert.Contains("demoAttemptStarted", browser, StringComparison.Ordinal);

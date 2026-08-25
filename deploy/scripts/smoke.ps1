@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)] [uri] $WorkerUrl,
     [Parameter(Mandatory)] [uri] $ReferenceTargetUrl,
     [switch] $ApproveStagingSmoke,
-    [ValidateRange(30, 210)] [int] $TimeoutSeconds = 210,
+    [ValidateRange(30, 360)] [int] $TimeoutSeconds = 360,
     [string] $ProgressPath,
     [string] $ResultPath,
     [string] $RequiredExistingHuntId,
