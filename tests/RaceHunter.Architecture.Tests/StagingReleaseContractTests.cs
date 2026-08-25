@@ -403,6 +403,49 @@ public sealed class StagingReleaseContractTests
     }
 
     [Fact]
+    public void Logging_entries_sanitizer_handles_official_pscustomobject_and_hashtable_shapes()
+    {
+        var sanitizerPath = Path.Combine(Root, "deploy", "scripts", "StagingLogSanitizer.psm1");
+        var result = RunPowerShell($$"""
+            Set-StrictMode -Version Latest
+            Import-Module '{{Escape(sanitizerPath)}}' -Force
+            $entry = [ordered]@{
+                timestamp = '2026-08-25T01:45:42.000000Z'; severity = 'ERROR'; insertId = 'abc123'
+                logName = 'projects/racehunter-staging/logs/run.googleapis.com%2Fstderr'
+                resource = [ordered]@{ type = 'cloud_run_revision'; labels = [ordered]@{ revision_name = 'racehunter-worker-00001-twd' } }
+                trace = 'projects/racehunter-staging/traces/901f197a51aa03910e5fdec2e105a016'; spanId = '0123456789abcdef'
+                jsonPayload = [ordered]@{ message = 'Worker request failed. Authorization: Bearer very-secret-token {"token":"json-secret"}'; exception = [ordered]@{ type = 'System.Threading.Tasks.TaskCanceledException'; message = 'The request timed out.'; stackTrace = 'at RaceHunter.Worker.Execution.CampaignRunner.ExecuteAsync()' } }
+            }
+            $psResponse = [pscustomobject]@{ entries = @([pscustomobject]$entry) }
+            $hashResponse = @{ entries = @($entry) }
+            $ps = @(ConvertFrom-StagingLoggingEntriesResponse -Response $psResponse)
+            $hash = @(ConvertFrom-StagingLoggingEntriesResponse -Response $hashResponse)
+            [pscustomobject]@{
+                count = $ps.Count + $hash.Count
+                timestamp = $ps[0].timestamp
+                severity = $ps[0].severity
+                message = $ps[0].message
+                exceptionType = $hash[0].exceptionType
+                exception = $hash[0].exception
+                stackTrace = $hash[0].stackTrace
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Equal(2, json.RootElement.GetProperty("count").GetInt32());
+        Assert.False(string.IsNullOrWhiteSpace(json.RootElement.GetProperty("timestamp").GetString()));
+        Assert.Equal("ERROR", json.RootElement.GetProperty("severity").GetString());
+        Assert.Contains("Worker request failed", json.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", json.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("very-secret-token", json.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("json-secret", json.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains("TaskCanceledException", json.RootElement.GetProperty("exceptionType").GetString(), StringComparison.Ordinal);
+        Assert.Contains("request timed out", json.RootElement.GetProperty("exception").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CampaignRunner", json.RootElement.GetProperty("stackTrace").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Approval_record_requires_exact_properties_types_boolean_true_and_a_utc_timestamp()
     {
         var result = RunPowerShell($$"""
