@@ -14,4 +14,20 @@ function Get-StagingResponseStatusCode {
     try { return [int]$statusProperty.Value } catch { return $null }
 }
 
-Export-ModuleMember -Function 'Get-StagingResponseStatusCode'
+function Get-StagingPropertyValue {
+    param(
+        [AllowNull()] [object] $InputObject,
+        [Parameter(Mandatory)] [string] $Name
+    )
+
+    if ($null -eq $InputObject) { return $null }
+    if ($InputObject -is [Collections.IDictionary]) {
+        if ($InputObject.Contains($Name)) { return $InputObject[$Name] }
+        return $null
+    }
+    $property = $InputObject.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+
+Export-ModuleMember -Function 'Get-StagingResponseStatusCode', 'Get-StagingPropertyValue'

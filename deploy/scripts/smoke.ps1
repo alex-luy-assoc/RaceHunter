@@ -149,7 +149,7 @@ $huntId = [string]$progress.huntId
 
 if ([string]::IsNullOrWhiteSpace([string]$progress.planVersion)) {
     Invoke-RestMethod -Method Post -Uri (ApiUri "/api/hunts/$huntId/plan") -TimeoutSec (Remaining-TimeoutSeconds) | Out-Null
-    $plan = Wait-Json "/api/hunts/$huntId/plan" { param($value) $null -ne $value.planVersion }
+    $plan = Wait-Json "/api/hunts/$huntId/plan" { param($value) $null -ne (Get-StagingPropertyValue -InputObject $value -Name 'planVersion') }
     $progress.planVersion = [string]$plan.planVersion
     Save-Progress 'SmokeStarted'
 }

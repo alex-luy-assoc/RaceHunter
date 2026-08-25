@@ -403,6 +403,29 @@ public sealed class StagingReleaseContractTests
     }
 
     [Fact]
+    public void Smoke_plan_wait_predicate_is_strict_mode_safe_when_plan_version_is_omitted()
+    {
+        var helperPath = Path.Combine(Root, "deploy", "scripts", "StagingHttp.psm1");
+        var result = RunPowerShell($$"""
+            Set-StrictMode -Version Latest
+            Import-Module '{{Escape(helperPath)}}' -Force
+            $missing = [pscustomobject]@{ status = 'Planning' }
+            $ready = [pscustomobject]@{ status = 'Planned'; planVersion = 'plan-472b197b63f92131' }
+            [pscustomobject]@{
+                missingReady = $null -ne (Get-StagingPropertyValue -InputObject $missing -Name 'planVersion')
+                ready = $null -ne (Get-StagingPropertyValue -InputObject $ready -Name 'planVersion')
+                version = Get-StagingPropertyValue -InputObject $ready -Name 'planVersion'
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.False(json.RootElement.GetProperty("missingReady").GetBoolean());
+        Assert.True(json.RootElement.GetProperty("ready").GetBoolean());
+        Assert.Equal("plan-472b197b63f92131", json.RootElement.GetProperty("version").GetString());
+    }
+
+    [Fact]
     public void Logging_entries_sanitizer_handles_official_pscustomobject_and_hashtable_shapes()
     {
         var sanitizerPath = Path.Combine(Root, "deploy", "scripts", "StagingLogSanitizer.psm1");
