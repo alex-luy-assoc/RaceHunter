@@ -5,7 +5,10 @@ param(
     [switch] $ApproveStagingSmoke,
     [ValidateRange(30, 210)] [int] $TimeoutSeconds = 210,
     [string] $ProgressPath,
-    [string] $ResultPath
+    [string] $ResultPath,
+    [string] $RequiredExistingHuntId,
+    [string] $RequiredExistingPlanVersion,
+    [switch] $ResetExpiredDeadlineForExistingHunt
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,13 +24,22 @@ function Remaining-TimeoutSeconds {
     if ($remaining -lt 1) { throw 'The staging smoke deadline was exhausted.' }
     return $remaining
 }
+function Get-ResponseStatusCode([object] $ErrorRecord) {
+    $exception = $ErrorRecord.PSObject.Properties['Exception']?.Value
+    $response = $exception?.PSObject.Properties['Response']?.Value
+    $status = $response?.PSObject.Properties['StatusCode']?.Value
+    if ($null -eq $status) { return $null }
+    $numeric = $status.PSObject.Properties['value__']?.Value
+    if ($null -ne $numeric) { return [int]$numeric }
+    try { return [int]$status } catch { return $null }
+}
 function Assert-UnauthenticatedDenied([uri] $ServiceUrl, [string] $Name, [string] $Path) {
     try {
         Invoke-WebRequest -Method Get -Uri ([uri]::new($ServiceUrl, $Path)) -UseBasicParsing -TimeoutSec (Remaining-TimeoutSeconds) | Out-Null
         throw "$Name accepted an unauthenticated invocation."
     }
     catch {
-        $status = $_.Exception.Response.StatusCode.value__
+        $status = Get-ResponseStatusCode $_
         if ($status -notin @(401, 403)) { throw "$Name application route did not return an authoritative IAM denial (received $status)." }
     }
 }
@@ -38,7 +50,7 @@ function Wait-Json([string] $Path, [scriptblock] $Ready) {
             if (& $Ready $result) { return $result }
         }
         catch {
-            if ($_.Exception.Response.StatusCode.value__ -notin @(202, 404)) { throw }
+            if ((Get-ResponseStatusCode $_) -notin @(202, 404)) { throw }
         }
         Start-Sleep -Seconds 1
     } while ([DateTimeOffset]::UtcNow -lt $deadline)
@@ -74,6 +86,24 @@ function Save-Progress([string] $Status) {
     $progress.status = $Status
     Write-JsonAtomic -Path $ProgressPath -Value $progress
 }
+if ($ResetExpiredDeadlineForExistingHunt -and (
+    [string]::IsNullOrWhiteSpace($RequiredExistingHuntId) -or
+    [string]::IsNullOrWhiteSpace($RequiredExistingPlanVersion))) {
+    throw 'An expired-deadline recovery requires exact non-empty existing hunt and plan identifiers.'
+}
+if (-not [string]::IsNullOrWhiteSpace($RequiredExistingHuntId)) {
+    if ([string]::IsNullOrWhiteSpace($RequiredExistingPlanVersion)) { throw 'Existing-hunt recovery requires an exact existing plan version.' }
+    if ([string]$progress.huntId -cne $RequiredExistingHuntId -or [bool]$progress.huntCreateStarted) {
+        throw 'RecoveryCompletion requires the exact durable existing hunt and forbids hunt creation.'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RequiredExistingPlanVersion)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$progress.planVersion) -and [string]$progress.planVersion -cne $RequiredExistingPlanVersion) {
+            throw 'The durable plan version drifted from the approved recovery binding.'
+        }
+        $progress.planVersion = $RequiredExistingPlanVersion
+        Save-Progress 'SmokeStarted'
+    }
+}
 if ([string]::IsNullOrWhiteSpace([string]$progress.startedAtUtc) -or [string]::IsNullOrWhiteSpace([string]$progress.deadlineAtUtc)) {
     $startedAt = [DateTimeOffset]::UtcNow
     $deadline = $startedAt.AddSeconds($TimeoutSeconds)
@@ -85,7 +115,16 @@ else {
     $startedAt = [DateTimeOffset]::Parse([string]$progress.startedAtUtc, [Globalization.CultureInfo]::InvariantCulture)
     $deadline = [DateTimeOffset]::Parse([string]$progress.deadlineAtUtc, [Globalization.CultureInfo]::InvariantCulture)
 }
-if ([DateTimeOffset]::UtcNow -ge $deadline) { throw 'The staging smoke absolute deadline was exhausted; a resumed invocation cannot reset it.' }
+if ([DateTimeOffset]::UtcNow -ge $deadline) {
+    if ($ResetExpiredDeadlineForExistingHunt -and -not [string]::IsNullOrWhiteSpace($RequiredExistingHuntId)) {
+        $startedAt = [DateTimeOffset]::UtcNow
+        $deadline = $startedAt.AddSeconds($TimeoutSeconds)
+        $progress.startedAtUtc = $startedAt.ToString('O')
+        $progress.deadlineAtUtc = $deadline.ToString('O')
+        Save-Progress 'SmokeStarted'
+    }
+    else { throw 'The staging smoke absolute deadline was exhausted; only an exact existing-hunt recovery approval may reset it.' }
+}
 
 Assert-UnauthenticatedDenied $WorkerUrl 'Worker' '/internal/replays'
 Assert-UnauthenticatedDenied $ReferenceTargetUrl 'Reference target' '/api/inventory'
@@ -94,6 +133,7 @@ $capabilities = Invoke-WebRequest -Method Get -Uri (ApiUri '/api/capabilities') 
 if ($capabilities.StatusCode -ne 200) { throw "API capabilities check failed with $($capabilities.StatusCode)." }
 
 if ([string]::IsNullOrWhiteSpace([string]$progress.huntId)) {
+    if (-not [string]::IsNullOrWhiteSpace($RequiredExistingHuntId)) { throw 'RecoveryCompletion forbids POST /api/hunts.' }
     if ([bool]$progress.huntCreateStarted) {
         Save-Progress 'AmbiguousMutation'
         throw 'AmbiguousMutation: hunt creation may have occurred without a durable hunt ID; a second new smoke run is forbidden.'

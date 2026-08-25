@@ -17,14 +17,22 @@ function Read-Json([string] $Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
     return Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json -AsHashtable -Depth 50
 }
+function Get-ResponseStatusCode([object] $ErrorRecord) {
+    $exception = $ErrorRecord.PSObject.Properties['Exception']?.Value
+    $response = $exception?.PSObject.Properties['Response']?.Value
+    $status = $response?.PSObject.Properties['StatusCode']?.Value
+    if ($null -eq $status) { return 0 }
+    $numeric = $status.PSObject.Properties['value__']?.Value
+    if ($null -ne $numeric) { return [int]$numeric }
+    try { return [int]$status } catch { return 0 }
+}
 function Get-ReadOnlyDiagnostic([uri] $Uri) {
     try {
         $response = Invoke-WebRequest -Method Get -Uri $Uri -UseBasicParsing -TimeoutSec 15
         return [ordered]@{ uri = $Uri.AbsoluteUri; statusCode = [int]$response.StatusCode; bodySha256 = Get-StagingTextSha ([string]$response.Content) }
     }
     catch {
-        $statusCode = $_.Exception.Response.StatusCode.value__
-        return [ordered]@{ uri = $Uri.AbsoluteUri; statusCode = $(if ($null -eq $statusCode) { 0 } else { [int]$statusCode }); bodySha256 = $null }
+        return [ordered]@{ uri = $Uri.AbsoluteUri; statusCode = Get-ResponseStatusCode $_; bodySha256 = $null }
     }
 }
 function Get-StagingTextSha([string] $Value) {
@@ -37,7 +45,7 @@ if (-not (Test-Path -LiteralPath $requestPath -PathType Leaf) -or (Get-FileSha $
     throw 'ReleaseCompletion request bytes do not match the exact approved SHA-256.'
 }
 $request = Read-Json $requestPath
-if ([string]$request.schemaVersion -cne '1.0' -or [string]$request.stage -cne 'ReleaseCompletion' -or $request.valid -isnot [bool] -or -not $request.valid) {
+if ([string]$request.schemaVersion -cne '1.0' -or [string]$request.stage -cnotin @('ReleaseCompletion', 'RecoveryCompletion') -or $request.valid -isnot [bool] -or -not $request.valid) {
     throw 'ReleaseCompletion request is invalid or default denied.'
 }
 
@@ -62,6 +70,27 @@ $smokeResultPath = Join-Path $artifactDirectory 'smoke-result.json'
 $demoProgressPath = Join-Path $artifactDirectory 'demo-progress.json'
 $demoResultPath = Join-Path $artifactDirectory 'demo-result.json'
 $demoArtifactDirectory = Join-Path $artifactDirectory 'demo-artifacts'
+$isRecovery = [string]$request.stage -ceq 'RecoveryCompletion'
+if ($isRecovery) {
+    if ([string]$request.recovery.existingHuntId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
+        throw 'RecoveryCompletion requires one exact existing hunt ID.'
+    }
+    if ([string]$request.recovery.existingPlanVersion -notmatch '^plan-[a-f0-9]{16}$') {
+        throw 'RecoveryCompletion requires one exact existing plan version.'
+    }
+}
+if ($isRecovery -and -not (Test-Path -LiteralPath $smokeProgressPath -PathType Leaf)) {
+    $sourcePath = [IO.Path]::GetFullPath([string]$request.recovery.sourceProgressPath)
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf) -or (Get-FileSha $sourcePath) -cne [string]$request.recovery.sourceProgressSha256) {
+        throw 'RecoveryCompletion source progress drifted from the approved bytes.'
+    }
+    $source = Read-Json $sourcePath
+    if ([string]$source.huntId -cne [string]$request.recovery.existingHuntId -or -not [string]::IsNullOrWhiteSpace([string]$source.runId)) {
+        throw 'RecoveryCompletion may resume only the exact existing pre-run hunt.'
+    }
+    $source.planVersion = [string]$request.recovery.existingPlanVersion
+    Write-JsonAtomic -Path $smokeProgressPath -Value $source
+}
 function Save-State([string] $Status, [string] $Failure = $null) {
     $state.status = $Status
     $state.updatedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
@@ -90,8 +119,16 @@ $smokeResult = Read-Json $smokeResultPath
 if ($null -eq $smokeResult -or [string]$smokeResult.status -ne 'SmokeComplete') {
     Save-State 'SmokeStarted'
     try {
-        & $artifactPaths.smoke -ApiBaseUrl ([uri]$request.apiBaseUrl) -WorkerUrl ([uri]$request.workerUrl) -ReferenceTargetUrl ([uri]$request.referenceTargetUrl) `
-            -ApproveStagingSmoke -TimeoutSeconds 210 -ProgressPath $smokeProgressPath -ResultPath $smokeResultPath
+        $smokeArguments = @{
+            ApiBaseUrl = [uri]$request.apiBaseUrl; WorkerUrl = [uri]$request.workerUrl; ReferenceTargetUrl = [uri]$request.referenceTargetUrl
+            ApproveStagingSmoke = $true; TimeoutSeconds = 210; ProgressPath = $smokeProgressPath; ResultPath = $smokeResultPath
+        }
+        if ($isRecovery) {
+            $smokeArguments.RequiredExistingHuntId = [string]$request.recovery.existingHuntId
+            $smokeArguments.RequiredExistingPlanVersion = [string]$request.recovery.existingPlanVersion
+            $smokeArguments.ResetExpiredDeadlineForExistingHunt = $true
+        }
+        & $artifactPaths.smoke @smokeArguments
     }
     catch {
         $progress = Read-Json $smokeProgressPath

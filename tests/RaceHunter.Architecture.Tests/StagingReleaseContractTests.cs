@@ -339,6 +339,11 @@ public sealed class StagingReleaseContractTests
         Assert.Contains("ProgressPath", smoke, StringComparison.Ordinal);
         Assert.Contains("huntCreateStarted", smoke, StringComparison.Ordinal);
         Assert.Contains("deadlineAtUtc", smoke, StringComparison.Ordinal);
+        Assert.Contains("Get-ResponseStatusCode", smoke, StringComparison.Ordinal);
+        Assert.Contains("RequiredExistingHuntId", smoke, StringComparison.Ordinal);
+        Assert.Contains("RequiredExistingPlanVersion", smoke, StringComparison.Ordinal);
+        Assert.Contains("ResetExpiredDeadlineForExistingHunt", smoke, StringComparison.Ordinal);
+        Assert.DoesNotContain("$_.Exception.Response.StatusCode.value__", smoke, StringComparison.Ordinal);
         Assert.Contains("RACEHUNTER_DEMO_PROGRESS_PATH", browser, StringComparison.Ordinal);
         Assert.Contains("demoAttemptStarted", browser, StringComparison.Ordinal);
         Assert.Contains("runCreateStarted", browser, StringComparison.Ordinal);
@@ -352,8 +357,11 @@ public sealed class StagingReleaseContractTests
             Import-Module '{{Escape(ModulePath)}}' -Force
             $binding = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1'
             $approval = New-StagingReleaseApproval -Stage 'ReleaseCompletion' -Binding $binding
+            $recoveryApproval = New-StagingReleaseApproval -Stage 'RecoveryCompletion' -Binding $binding
             [pscustomobject]@{
                 releaseCompletion = Test-StagingReleaseApproval -Stage 'ReleaseCompletion' -Binding $binding -Approval $approval
+                recoveryCompletion = Test-StagingReleaseApproval -Stage 'RecoveryCompletion' -Binding $binding -Approval $recoveryApproval
+                releaseCannotRecover = Test-StagingReleaseApproval -Stage 'RecoveryCompletion' -Binding $binding -Approval $approval
                 smoke = Test-StagingReleaseApproval -Stage 'Smoke' -Binding $binding -Approval $approval
                 demo = Test-StagingReleaseApproval -Stage 'Demo' -Binding $binding -Approval $approval
                 deploy = Test-StagingReleaseApproval -Stage 'Deploy' -Binding $binding -Approval $approval
@@ -363,6 +371,8 @@ public sealed class StagingReleaseContractTests
         Assert.Equal(0, result.ExitCode);
         using var json = JsonDocument.Parse(result.Output);
         Assert.True(json.RootElement.GetProperty("releaseCompletion").GetBoolean());
+        Assert.True(json.RootElement.GetProperty("recoveryCompletion").GetBoolean());
+        Assert.False(json.RootElement.GetProperty("releaseCannotRecover").GetBoolean());
         Assert.False(json.RootElement.GetProperty("smoke").GetBoolean());
         Assert.False(json.RootElement.GetProperty("demo").GetBoolean());
         Assert.False(json.RootElement.GetProperty("deploy").GetBoolean());
