@@ -10,4 +10,4 @@
 - [ ] Terraform `fmt`, offline init, and validate pass in the pinned official container; no apply occurs during validation.
 - [ ] NuGet/npm vulnerability audits and repository secret scan report no findings.
 - [ ] No credentials, personal data, chain-of-thought, fabricated incident, or unsupported reproducibility claim appears in the submission.
-- [ ] Google Cloud deployment/apply/smoke was performed only after explicit owner approval.
+- [ ] Google Cloud deployment/apply and the consolidated application-layer smoke/demo completion were performed only after their exact owner approvals.

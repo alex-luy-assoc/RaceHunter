@@ -321,6 +321,54 @@ public sealed class StagingReleaseContractTests
     }
 
     [Fact]
+    public void Release_completion_is_one_application_layer_gate_with_separate_resumable_smoke_and_demo_evidence()
+    {
+        var entryPoint = File.ReadAllText(Path.Combine(Root, "deploy", "scripts", "staging-release.ps1"));
+        var coordinator = File.ReadAllText(Path.Combine(Root, "deploy", "scripts", "release-completion.ps1"));
+        var smoke = File.ReadAllText(Path.Combine(Root, "deploy", "scripts", "smoke.ps1"));
+        var browser = File.ReadAllText(Path.Combine(Root, "tests", "RaceHunter.AcceptanceTests", "staging-demo.spec.ts"));
+
+        Assert.Contains("ReleaseCompletion", entryPoint, StringComparison.Ordinal);
+        Assert.Contains("ApprovalRequestPath", coordinator, StringComparison.Ordinal);
+        Assert.Contains("ApprovedRequestHash", coordinator, StringComparison.Ordinal);
+        Assert.Contains("smoke-result.json", coordinator, StringComparison.Ordinal);
+        Assert.Contains("demo-result.json", coordinator, StringComparison.Ordinal);
+        Assert.Contains("SmokeComplete", coordinator, StringComparison.Ordinal);
+        Assert.Contains("DemoComplete", coordinator, StringComparison.Ordinal);
+        Assert.Contains("AmbiguousMutation", coordinator, StringComparison.Ordinal);
+        Assert.Contains("ProgressPath", smoke, StringComparison.Ordinal);
+        Assert.Contains("huntCreateStarted", smoke, StringComparison.Ordinal);
+        Assert.Contains("deadlineAtUtc", smoke, StringComparison.Ordinal);
+        Assert.Contains("RACEHUNTER_DEMO_PROGRESS_PATH", browser, StringComparison.Ordinal);
+        Assert.Contains("demoAttemptStarted", browser, StringComparison.Ordinal);
+        Assert.Contains("runCreateStarted", browser, StringComparison.Ordinal);
+        Assert.Contains("RACEHUNTER_DEMO_DEADLINE_UTC", browser, StringComparison.Ordinal);
+        Assert.Contains("Open verified finding", browser, StringComparison.Ordinal);
+        Assert.DoesNotContain("gcloud", coordinator, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("terraform", coordinator, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("docker", coordinator, StringComparison.OrdinalIgnoreCase);
+
+        var result = RunPowerShell($$"""
+            Import-Module '{{Escape(ModulePath)}}' -Force
+            $binding = New-StagingReleaseBinding -CommitSha '0123456789abcdef0123456789abcdef01234567' -ProjectId 'racehunter-staging' -Region 'us-east1'
+            $approval = New-StagingReleaseApproval -Stage 'ReleaseCompletion' -Binding $binding
+            [pscustomobject]@{
+                releaseCompletion = Test-StagingReleaseApproval -Stage 'ReleaseCompletion' -Binding $binding -Approval $approval
+                smoke = Test-StagingReleaseApproval -Stage 'Smoke' -Binding $binding -Approval $approval
+                demo = Test-StagingReleaseApproval -Stage 'Demo' -Binding $binding -Approval $approval
+                deploy = Test-StagingReleaseApproval -Stage 'Deploy' -Binding $binding -Approval $approval
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.True(json.RootElement.GetProperty("releaseCompletion").GetBoolean());
+        Assert.False(json.RootElement.GetProperty("smoke").GetBoolean());
+        Assert.False(json.RootElement.GetProperty("demo").GetBoolean());
+        Assert.False(json.RootElement.GetProperty("deploy").GetBoolean());
+    }
+
+    [Fact]
     public void Approval_record_requires_exact_properties_types_boolean_true_and_a_utc_timestamp()
     {
         var result = RunPowerShell($$"""

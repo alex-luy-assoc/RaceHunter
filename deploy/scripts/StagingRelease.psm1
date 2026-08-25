@@ -1,6 +1,6 @@
 Set-StrictMode -Version Latest
 
-$script:ExternalStages = @('Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo')
+$script:ExternalStages = @('Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo', 'ReleaseCompletion')
 $script:StateStages = @(
     'Initialized',
     'LocalQualified',
@@ -16,7 +16,7 @@ $script:StateStages = @(
     'SmokeComplete',
     'DemoComplete'
 )
-$script:ApprovalStages = @('Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo')
+$script:ApprovalStages = @('Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo', 'ReleaseCompletion')
 $script:EvidenceClassifications = @('local', 'local-emulated', 'cloud-read-only', 'deployed-staging', 'live-gemini', 'timed-staging-demo')
 $script:RequiredFoundationApis = @(
     'aiplatform.googleapis.com',
@@ -839,7 +839,7 @@ function Set-StagingReleaseFailure {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $Path,
-        [Parameter(Mandatory)] [ValidateSet('Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo')] [string] $Stage,
+        [Parameter(Mandatory)] [ValidateSet('Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo', 'ReleaseCompletion')] [string] $Stage,
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Reason,
         [switch] $AmbiguousMutation
     )
@@ -923,7 +923,7 @@ function Update-StagingReleaseBinding {
     param(
         [Parameter(Mandatory)] [string] $Path,
         [Parameter(Mandatory)] [object] $Binding,
-        [Parameter(Mandatory)] [ValidateSet('Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo')] [string] $ChangedAtStage
+        [Parameter(Mandatory)] [ValidateSet('Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo', 'ReleaseCompletion')] [string] $ChangedAtStage
     )
 
     $state = Get-StagingReleaseState -Path $Path

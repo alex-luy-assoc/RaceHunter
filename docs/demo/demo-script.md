@@ -16,7 +16,8 @@ Use a pre-provisioned staging environment and a fresh browser session. Do not pa
 ## Before recording
 
 1. Run the local fresh-volume golden path with `./scripts/run-real-playwright.ps1`.
-2. With explicit staging approval, run `deploy/scripts/smoke.ps1 -ApiBaseUrl <api-url> -WorkerUrl <worker-url> -ReferenceTargetUrl <target-url> -ApproveStagingSmoke`; it verifies the known `/healthz` routes return authoritative IAM `401/403` denials and fails if the journey exceeds four minutes.
-3. Confirm the Finding page has the exact headline, three failed reproductions, two actors, vulnerable Fail, fixed Pass, and Cloud Proof identifiers.
-4. Confirm logs and screenshots contain no bearer tokens, cookies, database passwords, demo-control keys, or target response secrets.
-5. Keep the architecture diagram and fallback local recording available; do not change the replay artifact or claim deterministic control of external server scheduling.
+2. With exact `ReleaseCompletion` approval, run the bound coordinator. Its separate smoke evidence verifies API `GET /api/capabilities` returns `200`, private worker `GET /internal/replays` and reference-target `GET /api/inventory` return authoritative IAM `401/403` denials, and the golden path finishes within 210 seconds. Cloud Run reserves some externally routed paths ending in `z`, so external checks intentionally do not use `/healthz`; the internal startup probes remain `/healthz`.
+3. The coordinator starts this fresh, unedited browser journey only after smoke succeeds, records it separately, and stops before creating another hunt if an interrupted request lacks a durable application ID.
+4. Confirm the Finding page has the exact headline, three failed reproductions, two actors, vulnerable Fail, fixed Pass, and Cloud Proof identifiers.
+5. Confirm logs and screenshots contain no bearer tokens, cookies, database passwords, demo-control keys, or target response secrets.
+6. Keep the architecture diagram and fallback local recording available; do not change the replay artifact or claim deterministic control of external server scheduling.

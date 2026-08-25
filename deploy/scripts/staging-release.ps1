@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('Initialize', 'Status', 'RecordFailure', 'Reconcile', 'QualifyLocal', 'Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo')]
+    [ValidateSet('Initialize', 'Status', 'RecordFailure', 'Reconcile', 'QualifyLocal', 'Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo', 'ReleaseCompletion')]
     [string] $Stage,
     [Parameter(Mandatory)] [string] $ProjectId,
     [Parameter(Mandatory)] [string] $Region,
@@ -13,7 +13,7 @@ param(
     [string] $TerraformInputsPath,
     [string] $SavedPlanPath,
     [string] $ApprovalPath,
-    [ValidateSet('Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo')]
+    [ValidateSet('Preflight', 'Foundation', 'PublishImages', 'Plan', 'Deploy', 'Validate', 'Smoke', 'Demo', 'ReleaseCompletion')]
     [string] $FailedStage,
     [string] $FailureReason,
     [switch] $AmbiguousMutation,
