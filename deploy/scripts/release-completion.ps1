@@ -38,7 +38,7 @@ if (-not (Test-Path -LiteralPath $requestPath -PathType Leaf) -or (Get-FileSha $
     throw 'ReleaseCompletion request bytes do not match the exact approved SHA-256.'
 }
 $request = Read-Json $requestPath
-if ([string]$request.schemaVersion -cne '1.0' -or [string]$request.stage -cnotin @('ReleaseCompletion', 'RecoveryCompletion', 'ExistingFindingCompletionResume', 'DemoReplacementCompletion') -or $request.valid -isnot [bool] -or -not $request.valid) {
+if ([string]$request.schemaVersion -cne '1.0' -or [string]$request.stage -cnotin @('ReleaseCompletion', 'RecoveryCompletion', 'ExistingFindingCompletionResume', 'DemoReplacementCompletion', 'DemoReplacementCompletion2') -or $request.valid -isnot [bool] -or -not $request.valid) {
     throw 'ReleaseCompletion request is invalid or default denied.'
 }
 
@@ -170,17 +170,19 @@ $demoResult = Read-Json $demoResultPath
 if ($null -eq $demoResult -or [string]$demoResult.status -ne 'DemoComplete') {
     $demoProgress = Read-Json $demoProgressPath
     if ($null -ne $demoProgress -and [string]$demoProgress.status -ne 'Ready') {
+        $demoRunId = [string](Get-StagingPropertyValue -InputObject $demoProgress -Name 'runId')
+        $demoFindingId = [string](Get-StagingPropertyValue -InputObject $demoProgress -Name 'findingId')
         $diagnostics = @()
-        if (-not [string]::IsNullOrWhiteSpace([string]$demoProgress.runId)) {
-            $diagnostics += Get-ReadOnlyDiagnostic ([uri]::new([uri]$request.apiBaseUrl, "/api/runs/$($demoProgress.runId)"))
-            $diagnostics += Get-ReadOnlyDiagnostic ([uri]::new([uri]$request.apiBaseUrl, "/api/cloud-proof?runId=$($demoProgress.runId)"))
+        if (-not [string]::IsNullOrWhiteSpace($demoRunId)) {
+            $diagnostics += Get-ReadOnlyDiagnostic ([uri]::new([uri]$request.apiBaseUrl, "/api/runs/$demoRunId"))
+            $diagnostics += Get-ReadOnlyDiagnostic ([uri]::new([uri]$request.apiBaseUrl, "/api/cloud-proof?runId=$demoRunId"))
         }
-        if (-not [string]::IsNullOrWhiteSpace([string]$demoProgress.findingId)) {
-            $diagnostics += Get-ReadOnlyDiagnostic ([uri]::new([uri]$request.apiBaseUrl, "/api/findings/$($demoProgress.findingId)"))
+        if (-not [string]::IsNullOrWhiteSpace($demoFindingId)) {
+            $diagnostics += Get-ReadOnlyDiagnostic ([uri]::new([uri]$request.apiBaseUrl, "/api/findings/$demoFindingId"))
         }
         Write-JsonAtomic -Path (Join-Path $artifactDirectory 'demo-read-only-diagnostic.json') -Value ([ordered]@{
             schemaVersion = '1.0'; observedAtUtc = [DateTimeOffset]::UtcNow.ToString('O'); requestHash = $ApprovedRequestHash
-            runId = [string]$demoProgress.runId; findingId = [string]$demoProgress.findingId; observations = @($diagnostics)
+            runId = $demoRunId; findingId = $demoFindingId; observations = @($diagnostics)
         })
         Save-State 'DemoIncomplete' 'An interrupted browser recording cannot qualify as one fresh unedited demo; a second new demo is forbidden.'
         throw 'DemoIncomplete: same-run diagnostics remain allowed, but this authorization forbids a second fresh demo.'

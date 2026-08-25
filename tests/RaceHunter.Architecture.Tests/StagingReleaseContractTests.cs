@@ -461,6 +461,27 @@ public sealed class StagingReleaseContractTests
     }
 
     [Fact]
+    public void Demo_failure_evidence_is_strict_mode_safe_when_run_id_is_omitted()
+    {
+        var helperPath = Path.Combine(Root, "deploy", "scripts", "StagingHttp.psm1");
+        var result = RunPowerShell($$"""
+            Set-StrictMode -Version Latest
+            Import-Module '{{Escape(helperPath)}}' -Force
+            $progress = [pscustomobject]@{ status = 'DemoStarted'; demoAttemptStarted = $true; huntId = '434c9958-1848-47d8-b543-a0fec933cbb8' }
+            $runId = [string](Get-StagingPropertyValue -InputObject $progress -Name 'runId')
+            [pscustomobject]@{
+                runIdMissing = [string]::IsNullOrWhiteSpace($runId)
+                huntId = Get-StagingPropertyValue -InputObject $progress -Name 'huntId'
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.True(json.RootElement.GetProperty("runIdMissing").GetBoolean());
+        Assert.Equal("434c9958-1848-47d8-b543-a0fec933cbb8", json.RootElement.GetProperty("huntId").GetString());
+    }
+
+    [Fact]
     public void Logging_entries_sanitizer_handles_official_pscustomobject_and_hashtable_shapes()
     {
         var sanitizerPath = Path.Combine(Root, "deploy", "scripts", "StagingLogSanitizer.psm1");
