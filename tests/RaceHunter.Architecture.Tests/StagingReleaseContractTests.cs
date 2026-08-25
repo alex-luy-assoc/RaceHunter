@@ -339,7 +339,7 @@ public sealed class StagingReleaseContractTests
         Assert.Contains("ProgressPath", smoke, StringComparison.Ordinal);
         Assert.Contains("huntCreateStarted", smoke, StringComparison.Ordinal);
         Assert.Contains("deadlineAtUtc", smoke, StringComparison.Ordinal);
-        Assert.Contains("Get-ResponseStatusCode", smoke, StringComparison.Ordinal);
+        Assert.Contains("Get-StagingResponseStatusCode", smoke, StringComparison.Ordinal);
         Assert.Contains("RequiredExistingHuntId", smoke, StringComparison.Ordinal);
         Assert.Contains("RequiredExistingPlanVersion", smoke, StringComparison.Ordinal);
         Assert.Contains("ResetExpiredDeadlineForExistingHunt", smoke, StringComparison.Ordinal);
@@ -376,6 +376,30 @@ public sealed class StagingReleaseContractTests
         Assert.False(json.RootElement.GetProperty("smoke").GetBoolean());
         Assert.False(json.RootElement.GetProperty("demo").GetBoolean());
         Assert.False(json.RootElement.GetProperty("deploy").GetBoolean());
+    }
+
+    [Fact]
+    public void Http_status_helper_is_strict_mode_safe_when_exception_response_is_absent()
+    {
+        var helperPath = Path.Combine(Root, "deploy", "scripts", "StagingHttp.psm1");
+        var result = RunPowerShell($$"""
+            Set-StrictMode -Version Latest
+            Import-Module '{{Escape(helperPath)}}' -Force
+            $missing = 42
+            try { throw 'synthetic error without response' } catch { $missing = Get-StagingResponseStatusCode -ErrorRecord $_ }
+            $exception = [Exception]::new('synthetic response')
+            $exception | Add-Member -NotePropertyName Response -NotePropertyValue ([pscustomobject]@{ StatusCode = 403 })
+            $record = [Management.Automation.ErrorRecord]::new($exception, 'synthetic', [Management.Automation.ErrorCategory]::InvalidOperation, $null)
+            [pscustomobject]@{
+                missingIsNull = $null -eq $missing
+                responseStatus = Get-StagingResponseStatusCode -ErrorRecord $record
+            } | ConvertTo-Json -Compress
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.True(json.RootElement.GetProperty("missingIsNull").GetBoolean());
+        Assert.Equal(403, json.RootElement.GetProperty("responseStatus").GetInt32());
     }
 
     [Fact]

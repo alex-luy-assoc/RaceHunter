@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'StagingHttp.psm1') -Force
 function Get-FileSha([string] $Path) { return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant() }
 function Write-JsonAtomic([string] $Path, [object] $Value) {
     $directory = Split-Path -Parent $Path
@@ -17,22 +18,14 @@ function Read-Json([string] $Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
     return Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json -AsHashtable -Depth 50
 }
-function Get-ResponseStatusCode([object] $ErrorRecord) {
-    $exception = $ErrorRecord.PSObject.Properties['Exception']?.Value
-    $response = $exception?.PSObject.Properties['Response']?.Value
-    $status = $response?.PSObject.Properties['StatusCode']?.Value
-    if ($null -eq $status) { return 0 }
-    $numeric = $status.PSObject.Properties['value__']?.Value
-    if ($null -ne $numeric) { return [int]$numeric }
-    try { return [int]$status } catch { return 0 }
-}
 function Get-ReadOnlyDiagnostic([uri] $Uri) {
     try {
         $response = Invoke-WebRequest -Method Get -Uri $Uri -UseBasicParsing -TimeoutSec 15
         return [ordered]@{ uri = $Uri.AbsoluteUri; statusCode = [int]$response.StatusCode; bodySha256 = Get-StagingTextSha ([string]$response.Content) }
     }
     catch {
-        return [ordered]@{ uri = $Uri.AbsoluteUri; statusCode = Get-ResponseStatusCode $_; bodySha256 = $null }
+        $statusCode = Get-StagingResponseStatusCode $_
+        return [ordered]@{ uri = $Uri.AbsoluteUri; statusCode = $(if ($null -eq $statusCode) { 0 } else { $statusCode }); bodySha256 = $null }
     }
 }
 function Get-StagingTextSha([string] $Value) {
@@ -52,6 +45,7 @@ if ([string]$request.schemaVersion -cne '1.0' -or [string]$request.stage -cnotin
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $artifactPaths = [ordered]@{
     coordinator = [IO.Path]::GetFullPath($PSCommandPath)
+    http = Join-Path $repositoryRoot 'deploy\scripts\StagingHttp.psm1'
     smoke = Join-Path $repositoryRoot 'deploy\scripts\smoke.ps1'
     browser = Join-Path $repositoryRoot 'tests\RaceHunter.AcceptanceTests\staging-demo.spec.ts'
     browserConfig = Join-Path $repositoryRoot 'tests\RaceHunter.AcceptanceTests\playwright.staging-demo.config.ts'

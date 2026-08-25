@@ -12,6 +12,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'StagingHttp.psm1') -Force
 if (-not $ApproveStagingSmoke) {
     throw 'The deployed smoke contacts a Google Cloud staging environment. Re-run only after explicit approval with -ApproveStagingSmoke.'
 }
@@ -24,22 +25,13 @@ function Remaining-TimeoutSeconds {
     if ($remaining -lt 1) { throw 'The staging smoke deadline was exhausted.' }
     return $remaining
 }
-function Get-ResponseStatusCode([object] $ErrorRecord) {
-    $exception = $ErrorRecord.PSObject.Properties['Exception']?.Value
-    $response = $exception?.PSObject.Properties['Response']?.Value
-    $status = $response?.PSObject.Properties['StatusCode']?.Value
-    if ($null -eq $status) { return $null }
-    $numeric = $status.PSObject.Properties['value__']?.Value
-    if ($null -ne $numeric) { return [int]$numeric }
-    try { return [int]$status } catch { return $null }
-}
 function Assert-UnauthenticatedDenied([uri] $ServiceUrl, [string] $Name, [string] $Path) {
     try {
         Invoke-WebRequest -Method Get -Uri ([uri]::new($ServiceUrl, $Path)) -UseBasicParsing -TimeoutSec (Remaining-TimeoutSeconds) | Out-Null
         throw "$Name accepted an unauthenticated invocation."
     }
     catch {
-        $status = Get-ResponseStatusCode $_
+        $status = Get-StagingResponseStatusCode $_
         if ($status -notin @(401, 403)) { throw "$Name application route did not return an authoritative IAM denial (received $status)." }
     }
 }
@@ -50,7 +42,7 @@ function Wait-Json([string] $Path, [scriptblock] $Ready) {
             if (& $Ready $result) { return $result }
         }
         catch {
-            if ((Get-ResponseStatusCode $_) -notin @(202, 404)) { throw }
+            if ((Get-StagingResponseStatusCode $_) -notin @(202, 404)) { throw }
         }
         Start-Sleep -Seconds 1
     } while ([DateTimeOffset]::UtcNow -lt $deadline)
