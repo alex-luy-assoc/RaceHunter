@@ -299,6 +299,20 @@ public sealed class AdaptiveStrategyLoop(IExperimentStrategist strategist)
                 failedAttempt);
             if (!recovered && attemptSink is not null) await attemptSink(iteration, settings, evidence, cancellationToken);
 
+            // A deterministic invariant failure is itself the campaign's stop decision. Persist the
+            // attempt first, then preserve the remaining request/model budget for reproduction and
+            // minimization instead of asking the strategist to rediscover an already-proven outcome.
+            if (attempt.InvariantOutcome == InvariantOutcome.Fail)
+                return new AdaptiveCampaignResult(
+                    CampaignOutcome.VerifiedViolation,
+                    true,
+                    iteration,
+                    modelCallsConsumed,
+                    decisions,
+                    failedSettings,
+                    failedAttempt,
+                    requestsConsumed);
+
             if (modelCallsConsumed >= context.Budget.MaxModelCalls)
                 return CompleteAtBudgetBoundary(verified, iteration, modelCallsConsumed, decisions, failedSettings, failedAttempt, requestsConsumed);
 

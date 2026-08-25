@@ -137,6 +137,43 @@ public sealed class ApprovalAndStrategyTests
     }
 
     [Fact]
+    public async Task Deterministic_failure_is_persisted_and_returned_without_another_strategy_decision()
+    {
+        var strategist = new CountingStrategist();
+        var failed = new DeterministicAttemptResult(
+            InvariantOutcome.Fail,
+            ["trace:global-snapshot"],
+            3,
+            [new DeterministicReplayStep(1, 0), new DeterministicReplayStep(2, 0)]);
+        var persisted = false;
+        var decisionsPersisted = 0;
+
+        var result = await new AdaptiveStrategyLoop(strategist).RunAsync(
+            Context(),
+            (_, _, _) => Task.FromResult(failed),
+            CancellationToken.None,
+            (_, _, _, _) => { decisionsPersisted++; return Task.CompletedTask; },
+            (_, settings, evidence, _) =>
+            {
+                persisted = true;
+                Assert.Equal(InvariantOutcome.Fail.ToString(), evidence.InvariantOutcome);
+                Assert.Equal(settings, evidence.VerifiedFailedSettings);
+                Assert.Same(failed, evidence.VerifiedFailedAttempt);
+                return Task.CompletedTask;
+            });
+
+        Assert.True(persisted);
+        Assert.Equal(0, strategist.Calls);
+        Assert.Equal(0, decisionsPersisted);
+        Assert.Equal(CampaignOutcome.VerifiedViolation, result.Outcome);
+        Assert.True(result.VerifiedViolation);
+        Assert.Equal(Context().Initial, result.FailedSettings);
+        Assert.Same(failed, result.FailedAttempt);
+        Assert.Equal(3, result.RequestsConsumed);
+        Assert.Empty(result.Decisions);
+    }
+
+    [Fact]
     public void Campaign_duration_budget_uses_remaining_time_from_original_start()
     {
         var startedAt = DateTime.Parse("2026-08-18T12:00:00Z").ToUniversalTime();
@@ -176,6 +213,25 @@ public sealed class ApprovalAndStrategyTests
     {
         public Task<StrategyDecision> SelectNextAsync(StrategySelectionContext context, CancellationToken cancellationToken) =>
             throw new ModelOutputException(ModelOutcome.BudgetExhausted, "repair budget exhausted", modelCallsConsumed: 2);
+    }
+
+    private sealed class CountingStrategist : IExperimentStrategist
+    {
+        public int Calls { get; private set; }
+
+        public Task<StrategyDecision> SelectNextAsync(StrategySelectionContext context, CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(new StrategyDecision(
+                AgentActionKind.Repeat,
+                context.Current.ActorCount,
+                context.Current.Strategy,
+                context.Current.TimingAdjustmentMs,
+                "Should not be called after deterministic failure.",
+                "strategy-v1",
+                "fake",
+                "unexpected"));
+        }
     }
 
     private sealed class MemoryHuntWorkflowStore(string planVersion) : IHuntWorkflowStore
