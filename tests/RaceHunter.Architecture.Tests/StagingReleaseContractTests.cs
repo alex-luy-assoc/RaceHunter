@@ -414,26 +414,37 @@ public sealed class StagingReleaseContractTests
                 logName = 'projects/racehunter-staging/logs/run.googleapis.com%2Fstderr'
                 resource = [ordered]@{ type = 'cloud_run_revision'; labels = [ordered]@{ revision_name = 'racehunter-worker-00001-twd' } }
                 trace = 'projects/racehunter-staging/traces/901f197a51aa03910e5fdec2e105a016'; spanId = '0123456789abcdef'
-                jsonPayload = [ordered]@{ message = 'Worker request failed. Authorization: Bearer very-secret-token {"token":"json-secret"}'; exception = [ordered]@{ type = 'System.Threading.Tasks.TaskCanceledException'; message = 'The request timed out.'; stackTrace = 'at RaceHunter.Worker.Execution.CampaignRunner.ExecuteAsync()' } }
+                labels = [ordered]@{ execution_id = '85fc22fd-43a3-4e9f-88a6-13659d617645'; api_key = 'AIza-obviously-secret' }
+                jsonPayload = [ordered]@{ category = 'RaceHunter.Worker.Execution.CampaignRunner'; message = 'Worker request failed. Authorization: Bearer very-secret-token {"token":"json-secret"}'; exception = [ordered]@{ type = 'System.Threading.Tasks.TaskCanceledException'; message = 'The request timed out.'; stackTrace = 'at RaceHunter.Worker.Execution.CampaignRunner.ExecuteAsync()' } }
             }
             $psResponse = [pscustomobject]@{ entries = @([pscustomobject]$entry) }
             $hashResponse = @{ entries = @($entry) }
             $ps = @(ConvertFrom-StagingLoggingEntriesResponse -Response $psResponse)
             $hash = @(ConvertFrom-StagingLoggingEntriesResponse -Response $hashResponse)
+            $empty = @(ConvertFrom-StagingLoggingEntriesResponse -Response ([pscustomobject]@{}))
+            $opaque = @(ConvertFrom-StagingLoggingEntriesResponse -Response ([pscustomobject]@{ entries = @([pscustomobject]@{ labels = [pscustomobject]@{ api_key = 'opaque-label-secret' }; jsonPayload = [pscustomobject]@{ category = 'opaque-category-secret'; message = ('x' * 5000) } }) }))
             [pscustomobject]@{
                 count = $ps.Count + $hash.Count
+                emptyCount = $empty.Count
                 timestamp = $ps[0].timestamp
                 severity = $ps[0].severity
                 message = $ps[0].message
                 exceptionType = $hash[0].exceptionType
                 exception = $hash[0].exception
                 stackTrace = $hash[0].stackTrace
+                category = $hash[0].category
+                executionLabel = $hash[0].labels.execution_id
+                rejectedLabel = @($opaque[0].labels.PSObject.Properties | ForEach-Object Name) -notcontains 'api_key'
+                rejectedCategory = [string]::IsNullOrEmpty($opaque[0].category)
+                truncatedMessageLength = $opaque[0].message.Length
+                truncatedMessageMarked = $opaque[0].message.EndsWith(' [TRUNCATED]')
             } | ConvertTo-Json -Compress
             """);
 
         Assert.Equal(0, result.ExitCode);
         using var json = JsonDocument.Parse(result.Output);
         Assert.Equal(2, json.RootElement.GetProperty("count").GetInt32());
+        Assert.Equal(0, json.RootElement.GetProperty("emptyCount").GetInt32());
         Assert.False(string.IsNullOrWhiteSpace(json.RootElement.GetProperty("timestamp").GetString()));
         Assert.Equal("ERROR", json.RootElement.GetProperty("severity").GetString());
         Assert.Contains("Worker request failed", json.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
@@ -443,6 +454,14 @@ public sealed class StagingReleaseContractTests
         Assert.Contains("TaskCanceledException", json.RootElement.GetProperty("exceptionType").GetString(), StringComparison.Ordinal);
         Assert.Contains("request timed out", json.RootElement.GetProperty("exception").GetString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("CampaignRunner", json.RootElement.GetProperty("stackTrace").GetString(), StringComparison.Ordinal);
+        Assert.Contains("CampaignRunner", json.RootElement.GetProperty("category").GetString(), StringComparison.Ordinal);
+        Assert.Equal("85fc22fd-43a3-4e9f-88a6-13659d617645", json.RootElement.GetProperty("executionLabel").GetString());
+        Assert.True(json.RootElement.GetProperty("rejectedLabel").GetBoolean());
+        Assert.True(json.RootElement.GetProperty("rejectedCategory").GetBoolean());
+        Assert.Equal(4012, json.RootElement.GetProperty("truncatedMessageLength").GetInt32());
+        Assert.True(json.RootElement.GetProperty("truncatedMessageMarked").GetBoolean());
+        Assert.DoesNotContain("opaque-label-secret", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("opaque-category-secret", result.Output, StringComparison.Ordinal);
     }
 
     [Fact]

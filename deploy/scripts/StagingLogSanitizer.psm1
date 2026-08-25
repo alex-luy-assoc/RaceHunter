@@ -20,6 +20,24 @@ function Protect-StagingLogText {
     return $text
 }
 
+function ConvertTo-StagingSafeLabels {
+    param([AllowNull()] [object[]] $LabelSets)
+    $safe = [ordered]@{}
+    $allowedNames = @('project_id', 'service_name', 'revision_name', 'location', 'configuration_name', 'execution_id')
+    foreach ($set in @($LabelSets)) {
+        if ($null -eq $set) { continue }
+        $names = if ($set -is [System.Collections.IDictionary]) { @($set.Keys) } else { @($set.PSObject.Properties.Name) }
+        foreach ($nameValue in $names) {
+            $name = [string]$nameValue
+            if ($allowedNames -cnotcontains $name) { continue }
+            $value = Get-StagingLogValue $set $name
+            if ($null -eq $value -or $value -isnot [string] -and $value -isnot [ValueType]) { continue }
+            $safe[$name] = Protect-StagingLogText $value 512
+        }
+    }
+    return $safe
+}
+
 function ConvertFrom-StagingLoggingEntriesResponse {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [object] $Response)
@@ -30,7 +48,8 @@ function ConvertFrom-StagingLoggingEntriesResponse {
         if ($null -eq $entry) { continue }
         $json = Get-StagingLogValue $entry 'jsonPayload'
         $resource = Get-StagingLogValue $entry 'resource'
-        $labels = Get-StagingLogValue $resource 'labels'
+        $resourceLabels = Get-StagingLogValue $resource 'labels'
+        $entryLabels = Get-StagingLogValue $entry 'labels'
         $message = Get-StagingLogValue $entry 'textPayload'
         if ($null -eq $message) { $message = Get-StagingLogValue $json 'message' }
         $exceptionValue = Get-StagingLogValue $json 'exception'
@@ -43,12 +62,18 @@ function ConvertFrom-StagingLoggingEntriesResponse {
             $exceptionMessage = Get-StagingLogValue $exceptionValue 'message'
             if ($null -eq $stackTrace) { $stackTrace = Get-StagingLogValue $exceptionValue 'stackTrace' }
         }
+        $category = Get-StagingLogValue $json 'category'
+        if ($null -eq $category) { $category = Get-StagingLogValue $json 'CategoryName' }
+        if ($null -eq $category -or [string]$category -notmatch '^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+$') { $category = $null }
+        $safeLabels = ConvertTo-StagingSafeLabels @($resourceLabels, $entryLabels)
         [pscustomobject][ordered]@{
             timestamp = [string](Get-StagingLogValue $entry 'timestamp')
             severity = [string](Get-StagingLogValue $entry 'severity')
             insertId = [string](Get-StagingLogValue $entry 'insertId')
             logName = Protect-StagingLogText (Get-StagingLogValue $entry 'logName') 512
-            revision = [string](Get-StagingLogValue $labels 'revision_name')
+            revision = [string](Get-StagingLogValue $resourceLabels 'revision_name')
+            category = Protect-StagingLogText $category 512
+            labels = [pscustomobject]$safeLabels
             trace = Protect-StagingLogText (Get-StagingLogValue $entry 'trace') 512
             spanId = Protect-StagingLogText (Get-StagingLogValue $entry 'spanId') 128
             message = Protect-StagingLogText $message 4000
