@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
+import { bufferJsonResponse } from './staging-demo-response.mjs'
 
 type Progress = {
   schemaVersion: '1.0'
@@ -69,9 +70,9 @@ test('one unedited fresh staging demo follows the documented journey', async ({ 
     })
     progress.runCreateStarted = true
     saveProgress(progress)
-    const approved = page.waitForResponse(response => response.url().endsWith(`/api/hunts/${progress.huntId}/runs`) && response.request().method() === 'POST')
+    const approved = bufferJsonResponse(page.waitForResponse(response => response.url().endsWith(`/api/hunts/${progress.huntId}/runs`) && response.request().method() === 'POST'))
     await approve.click()
-    progress.runId = String((await (await approved).json()).runId)
+    progress.runId = String((await approved).runId)
     progress.runCreateStarted = false
     saveProgress(progress)
   } else if (!progress.findingId) {

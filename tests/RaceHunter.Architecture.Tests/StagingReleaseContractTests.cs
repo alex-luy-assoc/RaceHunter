@@ -338,6 +338,8 @@ public sealed class StagingReleaseContractTests
         Assert.Contains("AmbiguousMutation", coordinator, StringComparison.Ordinal);
         Assert.Contains("ExistingFindingCompletionResume", coordinator, StringComparison.Ordinal);
         Assert.Contains("DemoReplacementCompletion", coordinator, StringComparison.Ordinal);
+        Assert.Contains("ExistingDemoRunCompletion", coordinator, StringComparison.Ordinal);
+        Assert.Contains("ExistingDemoRunCompletion destination progress identity drifted", coordinator, StringComparison.Ordinal);
         Assert.Contains("existingRunId", coordinator, StringComparison.Ordinal);
         Assert.Contains("existingFindingId", coordinator, StringComparison.Ordinal);
         Assert.Contains("destination progress identity drifted", coordinator, StringComparison.Ordinal);
@@ -479,6 +481,34 @@ public sealed class StagingReleaseContractTests
         using var json = JsonDocument.Parse(result.Output);
         Assert.True(json.RootElement.GetProperty("runIdMissing").GetBoolean());
         Assert.Equal("434c9958-1848-47d8-b543-a0fec933cbb8", json.RootElement.GetProperty("huntId").GetString());
+    }
+
+    [Fact]
+    public void Demo_run_response_body_is_buffered_as_soon_as_the_response_arrives()
+    {
+        var helperPath = Path.Combine(Root, "tests", "RaceHunter.AcceptanceTests", "staging-demo-response.mjs");
+        var helperUrl = new Uri(helperPath).AbsoluteUri;
+        var result = RunPowerShell($$"""
+            $script = @'
+            import { bufferJsonResponse } from '{{helperUrl}}'
+            let bodyStarted = false
+            const payload = bufferJsonResponse(Promise.resolve({
+              body() {
+                bodyStarted = true
+                return Promise.resolve(Buffer.from('{"runId":"80b413e0-d747-4144-9c33-62258fccee9d"}', 'utf8'))
+              }
+            }))
+            await Promise.resolve()
+            const value = await payload
+            console.log(JSON.stringify({ bodyStarted, runId: value.runId }))
+            '@
+            & node --input-type=module --eval $script
+            """);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.True(json.RootElement.GetProperty("bodyStarted").GetBoolean());
+        Assert.Equal("80b413e0-d747-4144-9c33-62258fccee9d", json.RootElement.GetProperty("runId").GetString());
     }
 
     [Fact]

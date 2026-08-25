@@ -38,7 +38,7 @@ if (-not (Test-Path -LiteralPath $requestPath -PathType Leaf) -or (Get-FileSha $
     throw 'ReleaseCompletion request bytes do not match the exact approved SHA-256.'
 }
 $request = Read-Json $requestPath
-if ([string]$request.schemaVersion -cne '1.0' -or [string]$request.stage -cnotin @('ReleaseCompletion', 'RecoveryCompletion', 'ExistingFindingCompletionResume', 'DemoReplacementCompletion', 'DemoReplacementCompletion2') -or $request.valid -isnot [bool] -or -not $request.valid) {
+if ([string]$request.schemaVersion -cne '1.0' -or [string]$request.stage -cnotin @('ReleaseCompletion', 'RecoveryCompletion', 'ExistingFindingCompletionResume', 'DemoReplacementCompletion', 'DemoReplacementCompletion2', 'ExistingDemoRunCompletion') -or $request.valid -isnot [bool] -or -not $request.valid) {
     throw 'ReleaseCompletion request is invalid or default denied.'
 }
 
@@ -65,7 +65,14 @@ $demoProgressPath = Join-Path $artifactDirectory 'demo-progress.json'
 $demoResultPath = Join-Path $artifactDirectory 'demo-result.json'
 $demoArtifactDirectory = Join-Path $artifactDirectory 'demo-artifacts'
 $isExistingFindingResume = [string]$request.stage -ceq 'ExistingFindingCompletionResume'
+$isExistingDemoRunCompletion = [string]$request.stage -ceq 'ExistingDemoRunCompletion'
 $isRecovery = [string]$request.stage -ceq 'RecoveryCompletion' -or $isExistingFindingResume
+if ($isExistingDemoRunCompletion) {
+    if ([string]$request.demoRecovery.existingHuntId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' -or
+        [string]$request.demoRecovery.existingRunId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
+        throw 'ExistingDemoRunCompletion requires one exact existing hunt and run ID.'
+    }
+}
 if ($isRecovery) {
     if ([string]$request.recovery.existingHuntId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
         throw 'RecoveryCompletion requires one exact existing hunt ID.'
@@ -169,7 +176,18 @@ Save-State 'SmokeComplete'
 $demoResult = Read-Json $demoResultPath
 if ($null -eq $demoResult -or [string]$demoResult.status -ne 'DemoComplete') {
     $demoProgress = Read-Json $demoProgressPath
-    if ($null -ne $demoProgress -and [string]$demoProgress.status -ne 'Ready') {
+    if ($isExistingDemoRunCompletion) {
+        $destinationRunCreateStarted = Get-StagingPropertyValue -InputObject $demoProgress -Name 'runCreateStarted'
+        $destinationFindingId = [string](Get-StagingPropertyValue -InputObject $demoProgress -Name 'findingId')
+        if ($null -eq $demoProgress -or [string]$demoProgress.status -cne 'DemoStarted' -or
+            -not [bool]$demoProgress.demoAttemptStarted -or [bool]$destinationRunCreateStarted -or
+            [string]$demoProgress.huntId -cne [string]$request.demoRecovery.existingHuntId -or
+            [string]$demoProgress.runId -cne [string]$request.demoRecovery.existingRunId -or
+            -not [string]::IsNullOrWhiteSpace($destinationFindingId)) {
+            throw 'ExistingDemoRunCompletion destination progress identity drifted.'
+        }
+    }
+    elseif ($null -ne $demoProgress -and [string]$demoProgress.status -ne 'Ready') {
         $demoRunId = [string](Get-StagingPropertyValue -InputObject $demoProgress -Name 'runId')
         $demoFindingId = [string](Get-StagingPropertyValue -InputObject $demoProgress -Name 'findingId')
         $diagnostics = @()
