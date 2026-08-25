@@ -78,6 +78,24 @@ internal sealed class ReferenceInventoryTargetClient(HttpClient client)
             body.Replayed);
     }
 
+    public async Task<TargetCallResult> GetInventorySnapshotAsync(CancellationToken cancellationToken)
+        => await GetInventorySnapshotAsync(null, cancellationToken);
+
+    public async Task<TargetCallResult> GetInventorySnapshotAsync(string? requestId, CancellationToken cancellationToken)
+    {
+        requestId ??= Guid.NewGuid().ToString("N");
+        using var response = await client.GetAsync("/api/inventory", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<InventorySnapshotResponse>(cancellationToken)
+            ?? throw new InvalidOperationException("The reference target returned no inventory snapshot.");
+        return TargetCallResult.Success(
+            [
+                Observation.Number("successful-orders", body.SuccessfulOrders, $"target-snapshot:{requestId}", requestId),
+                Observation.Number("inventory-capacity", 1, $"target-snapshot:{requestId}", requestId)
+            ],
+            requestId);
+    }
+
     public async Task<int> CountMissingOrdersAsync(
         ReplayCandidate candidate,
         string operationKey,
@@ -100,13 +118,15 @@ internal sealed class ReferenceInventoryTargetClient(HttpClient client)
         response.EnsureSuccessStatusCode();
         var status = await response.Content.ReadFromJsonAsync<OrderStatusResponse>(cancellationToken)
             ?? throw new InvalidOperationException("The reference target returned no durable operation status.");
-        return status.Missing + status.Completed.Count(item => !persistedRequestIds.Contains(item.RequestId));
+        return checked(status.Missing + status.Completed.Count(item => !persistedRequestIds.Contains(item.RequestId)) +
+            ReferenceCampaignAttemptExecutor.ReferenceSnapshotRequestsPerAttempt);
     }
 
     private static string TargetKey(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
     private static string OrderKey(string operationKey, int actorId, string stepKey) => TargetKey($"{operationKey}:actor:{actorId}:step:{stepKey}");
 
     private sealed record InventoryOrderResponse(Guid CorrelationId, int SuccessfulOrders, bool Replayed);
+    private sealed record InventorySnapshotResponse(int Available, int SuccessfulOrders, string Mode);
     private sealed record CompletedOrderStatus(string IdempotencyKey, string RequestId);
     private sealed record OrderStatusResponse(int Missing, IReadOnlyList<CompletedOrderStatus> Completed);
 }

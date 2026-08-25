@@ -109,6 +109,34 @@ public sealed class ApprovalAndStrategyTests
     }
 
     [Fact]
+    public async Task Verified_attempt_is_preserved_when_the_iteration_budget_exhausts_before_strategist_stop()
+    {
+        var budget = new ExperimentBudget(2, 2, 3, 5, TimeSpan.FromSeconds(30), 0);
+        var failed = new DeterministicAttemptResult(
+            InvariantOutcome.Fail,
+            ["trace:global-snapshot"],
+            3,
+            [new DeterministicReplayStep(1, 0), new DeterministicReplayStep(2, 0)]);
+        var context = new AdaptiveCampaignContext(
+            Guid.NewGuid(),
+            new CampaignSettings(2, "simultaneous-start", 0),
+            ["simultaneous-start"],
+            budget,
+            maxIterations: 1,
+            fixedRequestsPerAttempt: 1);
+
+        var result = await new AdaptiveStrategyLoop(new FixedStrategist(
+                new StrategyDecision(AgentActionKind.Repeat, 2, "simultaneous-start", 0, "Repeat.", "strategy-v1", "fake", "i-1")))
+            .RunAsync(context, (_, _, _) => Task.FromResult(failed), CancellationToken.None);
+
+        Assert.Equal(CampaignOutcome.VerifiedViolation, result.Outcome);
+        Assert.True(result.VerifiedViolation);
+        Assert.Equal(context.Initial, result.FailedSettings);
+        Assert.Same(failed, result.FailedAttempt);
+        Assert.Equal(3, result.RequestsConsumed);
+    }
+
+    [Fact]
     public void Campaign_duration_budget_uses_remaining_time_from_original_start()
     {
         var startedAt = DateTime.Parse("2026-08-18T12:00:00Z").ToUniversalTime();

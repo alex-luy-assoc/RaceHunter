@@ -163,9 +163,13 @@ internal sealed class ReferenceReplayExecution(
                 budget,
                 (actor, token) => target.PlaceOrderAsync(replayRunId, actor, $"verify:{executionKey}", token),
                 cancellationToken);
+            var snapshot = await target.GetInventorySnapshotAsync(cancellationToken);
+            var observations = ReferenceCampaignAttemptExecutor.SelectReferenceInvariantObservations(
+                result.Executions.SelectMany(item => item.TargetResult.Observations).ToArray(),
+                snapshot.Observations);
             var invariant = new NumericBoundaryEvaluator().Evaluate(
                 new NumericBoundaryInvariant("successful-orders", 1),
-                result.Executions.SelectMany(item => item.TargetResult.Observations).ToArray());
+                observations);
             return new ReplayObservation(invariant.Outcome, invariant.TraceReferences);
         }
 

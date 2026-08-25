@@ -9,6 +9,7 @@ using RaceHunter.Domain.Budgets;
 using RaceHunter.Domain.Invariants;
 using RaceHunter.Domain.Replays;
 using RaceHunter.Domain.Runs;
+using RaceHunter.Domain.Tracing;
 using RaceHunter.Worker.Execution;
 using Xunit;
 
@@ -160,6 +161,72 @@ public sealed class CampaignFindingTests
     }
 
     [Fact]
+    public async Task Repeat_checkpoint_preserves_verified_failure_at_the_next_request_budget_boundary()
+    {
+        var failedSettings = new CampaignSettings(3, "simultaneous-start", 0);
+        var schedule = new[] { new DeterministicReplayStep(1, 0), new DeterministicReplayStep(2, 0), new DeterministicReplayStep(3, 0) };
+        var failedAttempt = new DeterministicAttemptResult(InvariantOutcome.Fail, ["trace:global-snapshot"], 4, schedule);
+        var state = new CampaignRunner.CheckpointState(
+            10,
+            "simultaneous-start",
+            0,
+            9,
+            2,
+            InvariantOutcome.Pass.ToString(),
+            ["trace:later-pass"],
+            [new DeterministicReplayStep(1, 0)],
+            AgentActionKind.Repeat.ToString(),
+            new CampaignSettings(10, "simultaneous-start", 0),
+            VerifiedFailedSettings: failedSettings,
+            VerifiedFailedAttempt: failedAttempt);
+        var checkpoint = new WorkCheckpoint("agent-decision-persisted", 1, JsonSerializer.Serialize(state), DateTime.UtcNow);
+        var plan = new ScenarioPlan(
+            "plan-v1", "plan-v1", "plan-v1", "fake", "model-1",
+            [new PlannedActor("buyer-1", "place-order"), new PlannedActor("buyer-2", "place-order")],
+            new PlannedInvariant("cross-observation", "successful-orders", null, "successful-orders", "inventory-capacity", "less-than-or-equal"),
+            new PlannedStrategy("simultaneous-start", 2, 1729),
+            1,
+            "{}");
+        var recovered = CampaignRunner.RecoverSettings(checkpoint, plan);
+        var context = new AdaptiveCampaignContext(
+            Guid.NewGuid(),
+            recovered.Settings,
+            ["simultaneous-start"],
+            new ExperimentBudget(10, 10, 10, 5, TimeSpan.FromSeconds(30), 0),
+            maxIterations: 5,
+            recovered.ResumeAfterIteration,
+            recovered.RequestsConsumed,
+            recovered.ModelCallsConsumed,
+            fixedRequestsPerAttempt: ReferenceCampaignAttemptExecutor.ReferenceSnapshotRequestsPerAttempt,
+            verifiedFailedSettings: recovered.FailedSettings,
+            verifiedFailedAttempt: recovered.VerifiedFailedAttempt);
+
+        var result = await new AdaptiveStrategyLoop(new NeverStrategist()).RunAsync(
+            context,
+            (_, _, _) => throw new InvalidOperationException("The next attempt must be rejected before execution."),
+            CancellationToken.None);
+
+        Assert.Equal(CampaignOutcome.VerifiedViolation, result.Outcome);
+        Assert.Equal(failedSettings, result.FailedSettings);
+        Assert.Equal(schedule, result.FailedAttempt!.Schedule);
+    }
+
+    [Fact]
+    public void Campaign_request_reconciliation_counts_a_pre_call_snapshot_reservation_once()
+    {
+        var runId = Guid.NewGuid();
+        var attemptId = Guid.NewGuid();
+        var traces = new[]
+        {
+            new TraceEvent(1, runId, attemptId, 1, "target-operation", "response-success", "order-1", DateTime.UtcNow),
+            new TraceEvent(2, runId, attemptId, 0, "inventory-snapshot", "request-started", "snapshot-1", DateTime.UtcNow),
+            new TraceEvent(3, runId, attemptId, 0, "inventory-snapshot", "response-success", "snapshot-1", DateTime.UtcNow)
+        };
+
+        Assert.Equal(2, CampaignRunner.CountCampaignRequests(traces));
+    }
+
+    [Fact]
     public async Task Reproduction_restart_reuses_completed_boundaries_and_target_idempotency_after_the_call_persistence_gap()
     {
         var runId = Guid.NewGuid();
@@ -177,6 +244,31 @@ public sealed class CampaignFindingTests
         Assert.Equal(9, target.PhysicalMutations);
         Assert.Equal(3, store.Items.Count);
         Assert.Equal(6, store.RequestsConsumed);
+    }
+
+    [Fact]
+    public async Task Snapshot_request_is_durably_reserved_before_each_replay_call_across_a_crash_gap()
+    {
+        var runId = Guid.NewGuid();
+        var store = new MemoryProbeStore { FailBeforeSaveKey = "reproduction:1" };
+        var physicalSnapshots = 0;
+        var candidate = Candidate(2);
+        Task<ReplayObservation> Execute(string probeKey, ReplayCandidate replayCandidate, ReplayTargetMode mode, CancellationToken token)
+        {
+            physicalSnapshots++;
+            return Task.FromResult(new ReplayObservation(InvariantOutcome.Fail, ["trace:snapshot"], physicalSnapshots == 1 ? 3 : 1));
+        }
+        var first = new DurableFindingReplayProbe(runId, 5, store, (_, _, _, _) => Task.FromResult(3), Execute,
+            ReferenceCampaignAttemptExecutor.ReferenceSnapshotRequestsPerAttempt);
+
+        await Assert.ThrowsAsync<IOException>(() => first.ExecuteAsync("reproduction:1", candidate, ReplayTargetMode.Vulnerable, CancellationToken.None));
+        var resumed = new DurableFindingReplayProbe(runId, 5 - store.RequestsConsumed, store, (_, _, _, _) => Task.FromResult(3), Execute,
+            ReferenceCampaignAttemptExecutor.ReferenceSnapshotRequestsPerAttempt);
+        var result = await resumed.ExecuteAsync("reproduction:1", candidate, ReplayTargetMode.Vulnerable, CancellationToken.None);
+
+        Assert.Equal(InvariantOutcome.Fail, result.Outcome);
+        Assert.Equal(2, physicalSnapshots);
+        Assert.Equal(2, store.RequestsConsumed);
     }
 
     [Fact]
@@ -376,5 +468,11 @@ public sealed class CampaignFindingTests
         public Task<IReadOnlyList<RunEvent>> GetEventsAsync(Guid id, long after, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<RunEvent>>(run.Events.Where(item => item.Cursor > after).ToArray());
         public Task<bool> RequestCancellationAsync(Guid id, DateTime requestedAtUtc, CancellationToken cancellationToken) => Task.FromResult(false);
+    }
+
+    private sealed class NeverStrategist : IExperimentStrategist
+    {
+        public Task<StrategyDecision> SelectNextAsync(StrategySelectionContext context, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("The strategist must not run after the request budget is exhausted.");
     }
 }

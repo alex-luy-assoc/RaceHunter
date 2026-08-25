@@ -82,6 +82,7 @@ internal sealed class CampaignRunner(
                 (await manualTarget.GetSnapshotAsync(hunt.ManualTargetId.Value, cancellationToken)).Operations.Any(operation => operation.IsSetup)
                 ? 1
                 : 0;
+            var observedCampaignRequests = CountCampaignRequests(await traces.GetAsync(run.Id, 0, cancellationToken));
             var context = new AdaptiveCampaignContext(
                 run.Id,
                 recovered.Settings,
@@ -89,10 +90,14 @@ internal sealed class CampaignRunner(
                 run.Budget,
                 Math.Max(1, Math.Min(run.Budget.MaxModelCalls, 5)),
                 recovered.ResumeAfterIteration,
-                recovered.RequestsConsumed,
+                Math.Max(recovered.RequestsConsumed, observedCampaignRequests),
                 recovered.HasCheckpoint ? recovered.ModelCallsConsumed : plan.ModelCallsConsumed,
                 recovered.RecoveredAttempt,
-                manualSetupCost);
+                hunt.ManualTargetId.HasValue
+                    ? manualSetupCost
+                    : ReferenceCampaignAttemptExecutor.ReferenceSnapshotRequestsPerAttempt,
+                recovered.FailedSettings,
+                recovered.VerifiedFailedAttempt);
             var invariant = PlannedInvariantCompiler.Compile(plan.Invariant);
             if (!hunt.ManualTargetId.HasValue)
                 await target.ResetAsync(
@@ -144,7 +149,9 @@ internal sealed class CampaignRunner(
                         evidence.TraceReferences,
                         evidence.Schedule,
                         decision.Action.ToString(),
-                        evidence.AttemptSettings));
+                        evidence.AttemptSettings,
+                        evidence.VerifiedFailedSettings,
+                        evidence.VerifiedFailedAttempt));
                     await decisionCheckpoints.PersistAsync(
                         workId,
                         leaseOwner,
@@ -164,7 +171,9 @@ internal sealed class CampaignRunner(
                         evidence.ModelCallsConsumed,
                         evidence.InvariantOutcome,
                         evidence.TraceReferences,
-                        evidence.Schedule));
+                        evidence.Schedule,
+                        VerifiedFailedSettings: evidence.VerifiedFailedSettings,
+                        VerifiedFailedAttempt: evidence.VerifiedFailedAttempt));
                     await inbox.SaveCheckpointAsync(
                         workId,
                         leaseOwner,
@@ -352,7 +361,8 @@ internal sealed class CampaignRunner(
                     manualTargetId,
                     token);
                 return new ReplayObservation(attempt.InvariantOutcome, attempt.TraceReferences, attempt.RequestsConsumed);
-            });
+            },
+            manualTargetId.HasValue ? 0 : ReferenceCampaignAttemptExecutor.ReferenceSnapshotRequestsPerAttempt);
         var reproduction = await PersistedRunLifecycle.RunReproductionAsync(
             run,
             runs,
@@ -453,28 +463,41 @@ internal sealed class CampaignRunner(
     internal static int RemainingFindingRequests(int maximum, int campaignConsumed, int completedProbeConsumed) =>
         Math.Max(0, maximum - checked(campaignConsumed + completedProbeConsumed));
 
+    internal static int CountCampaignRequests(IReadOnlyCollection<RaceHunter.Domain.Tracing.TraceEvent> traceEvents) =>
+        traceEvents
+            .Where(item => item.StepId is "target-operation" or "inventory-snapshot")
+            .Select(item => item.RequestId)
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+
     internal static RecoveryState RecoverSettings(WorkCheckpoint? checkpoint, ScenarioPlan plan)
     {
         if (checkpoint is null)
-            return new RecoveryState(new CampaignSettings(plan.Strategy.ActorCount, plan.Strategy.Kind, 0), 0, 0, 0, null, false, false, null);
+            return new RecoveryState(new CampaignSettings(plan.Strategy.ActorCount, plan.Strategy.Kind, 0), 0, 0, 0, null, false, false, null, null);
         var state = JsonSerializer.Deserialize<CheckpointState>(checkpoint.StateJson)
             ?? throw new InvalidOperationException("The persisted campaign checkpoint is invalid.");
         var settings = new CampaignSettings(state.ActorCount, state.Strategy, state.TimingAdjustmentMs);
         if (checkpoint.Boundary == "agent-decision-persisted")
         {
-            var shouldFinalize = state.Action == AgentActionKind.StartMinimization.ToString() &&
-                state.InvariantOutcome == InvariantOutcome.Fail.ToString() &&
-                state.Schedule is { Count: > 0 } &&
-                state.AttemptSettings is not null;
+            var legacyVerifiedAttempt = state.InvariantOutcome == InvariantOutcome.Fail.ToString() &&
+                state.Schedule is { Count: > 0 }
+                ? new DeterministicAttemptResult(InvariantOutcome.Fail, state.TraceReferences ?? [], 0, state.Schedule)
+                : null;
+            var verifiedAttempt = state.VerifiedFailedAttempt ?? legacyVerifiedAttempt;
+            var verifiedSettings = state.VerifiedFailedSettings ??
+                (legacyVerifiedAttempt is null ? null : state.AttemptSettings);
+            var hasVerifiedFailure = verifiedAttempt?.InvariantOutcome == InvariantOutcome.Fail && verifiedSettings is not null;
+            var shouldFinalize = hasVerifiedFailure && state.Action == AgentActionKind.StartMinimization.ToString();
             return new RecoveryState(
                 settings,
                 checkpoint.Iteration,
                 state.RequestsConsumed,
                 state.ModelCallsConsumed,
-                shouldFinalize ? new DeterministicAttemptResult(InvariantOutcome.Fail, state.TraceReferences ?? [], 0, state.Schedule) : null,
+                shouldFinalize ? verifiedAttempt : null,
                 true,
                 shouldFinalize,
-                shouldFinalize ? state.AttemptSettings : null);
+                hasVerifiedFailure ? verifiedSettings : null,
+                verifiedAttempt);
         }
         if (checkpoint.Boundary == "attempt-completed" && state.InvariantOutcome is not null)
         {
@@ -487,7 +510,8 @@ internal sealed class CampaignRunner(
                 new DeterministicAttemptResult(outcome, state.TraceReferences ?? [], 0, state.Schedule),
                 true,
                 false,
-                null);
+                state.VerifiedFailedSettings,
+                state.VerifiedFailedAttempt);
         }
         throw new InvalidOperationException("The persisted campaign checkpoint boundary is unsupported.");
     }
@@ -500,7 +524,8 @@ internal sealed class CampaignRunner(
         DeterministicAttemptResult? RecoveredAttempt,
         bool HasCheckpoint,
         bool FinalizeFinding,
-        CampaignSettings? FailedSettings);
+        CampaignSettings? FailedSettings,
+        DeterministicAttemptResult? VerifiedFailedAttempt);
 
     internal sealed record CheckpointState(
         int ActorCount,
@@ -512,5 +537,7 @@ internal sealed class CampaignRunner(
         IReadOnlyList<string>? TraceReferences = null,
         IReadOnlyList<DeterministicReplayStep>? Schedule = null,
         string? Action = null,
-        CampaignSettings? AttemptSettings = null);
+        CampaignSettings? AttemptSettings = null,
+        CampaignSettings? VerifiedFailedSettings = null,
+        DeterministicAttemptResult? VerifiedFailedAttempt = null);
 }

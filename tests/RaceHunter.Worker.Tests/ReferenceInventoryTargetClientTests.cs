@@ -1,9 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using RaceHunter.Application.Agents;
 using RaceHunter.Concurrency.Invariants;
+using RaceHunter.Concurrency.Replay;
 using RaceHunter.Concurrency.Scheduling;
 using RaceHunter.Domain.Invariants;
+using RaceHunter.Domain.Replays;
 using RaceHunter.Worker.Execution;
 using Xunit;
 
@@ -33,6 +36,62 @@ public sealed class ReferenceInventoryTargetClientTests
         var cardinality = new InvariantEvaluatorRegistry().Evaluate(new CardinalityInvariant("order-correlation"), result.Observations);
         Assert.Equal(InvariantOutcome.Pass, cross.Outcome);
         Assert.Equal(InvariantOutcome.Pass, cardinality.Outcome);
+    }
+
+    [Fact]
+    public async Task Global_inventory_snapshot_detects_oversell_hidden_by_per_response_snapshots()
+    {
+        var handler = new OversellSnapshotHandler();
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://reference-target") };
+        var client = new ReferenceInventoryTargetClient(http);
+        var observations = new List<Observation>();
+        for (var actor = 1; actor <= 5; actor++)
+        {
+            var response = await client.PlaceOrderAsync(Guid.NewGuid(), new ScheduledActor(actor, TimeSpan.Zero), CancellationToken.None);
+            observations.AddRange(response.Observations);
+        }
+        var snapshot = await client.GetInventorySnapshotAsync(CancellationToken.None);
+
+        var selected = ReferenceCampaignAttemptExecutor.SelectReferenceInvariantObservations(observations, snapshot.Observations);
+        var invariant = new CrossObservationEvaluator().Evaluate(
+            new CrossObservationInvariant("successful-orders", "inventory-capacity", CrossObservationRelation.LessThanOrEqual),
+            selected);
+
+        Assert.Equal(InvariantOutcome.Fail, invariant.Outcome);
+        Assert.Single(selected, item => item.Metric == "successful-orders");
+        Assert.Single(selected, item => item.Metric == "inventory-capacity");
+        Assert.Equal(1, handler.InventoryReads);
+    }
+
+    [Fact]
+    public async Task Replay_budget_reserves_the_global_inventory_snapshot_request()
+    {
+        var handler = new OrderStatusHandler();
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://reference-target") };
+        var client = new ReferenceInventoryTargetClient(http);
+        var candidate = new ReplayCandidate("simultaneous-start", 1,
+            [new ReplayStep(1, "place-order", "place-order", 0), new ReplayStep(2, "place-order", "place-order", 0)]);
+
+        var requests = await client.CountMissingOrdersAsync(candidate, "probe", "demo-key", new HashSet<string>(), CancellationToken.None);
+
+        Assert.Equal(1, requests);
+    }
+
+    [Fact]
+    public async Task Campaign_budget_reserves_the_global_inventory_snapshot_before_actor_requests()
+    {
+        var budget = new RaceHunter.Domain.Budgets.ExperimentBudget(10, 10, 10, 1, TimeSpan.FromSeconds(30), 0);
+        var context = new AdaptiveCampaignContext(Guid.NewGuid(), new CampaignSettings(10, "simultaneous-start", 0),
+            ["simultaneous-start"], budget, 1, fixedRequestsPerAttempt: ReferenceCampaignAttemptExecutor.ReferenceSnapshotRequestsPerAttempt);
+        var calls = 0;
+
+        var result = await new AdaptiveStrategyLoop(new StubStrategist()).RunAsync(
+            context,
+            (_, _, _) => { calls++; return Task.FromResult(new DeterministicAttemptResult(InvariantOutcome.Pass, [])); },
+            CancellationToken.None);
+
+        Assert.Equal(CampaignOutcome.BudgetExhausted, result.Outcome);
+        Assert.Equal(0, calls);
     }
 
     [Fact]
@@ -100,5 +159,41 @@ public sealed class ReferenceInventoryTargetClientTests
                 Content = JsonContent.Create(new { correlationId = Guid.NewGuid(), successfulOrders = 1, replayed = false })
             };
         }
+    }
+
+    private sealed class OversellSnapshotHandler : HttpMessageHandler
+    {
+        public int InventoryReads { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath == "/api/inventory")
+            {
+                InventoryReads++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new { available = 0, successfulOrders = 5, mode = "vulnerable" })
+                });
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { correlationId = Guid.NewGuid(), successfulOrders = 1, replayed = false })
+            });
+        }
+    }
+
+    private sealed class OrderStatusHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { missing = 0, completed = Array.Empty<object>() })
+            });
+    }
+
+    private sealed class StubStrategist : IExperimentStrategist
+    {
+        public Task<StrategyDecision> SelectNextAsync(StrategySelectionContext context, CancellationToken cancellationToken) =>
+            Task.FromResult(new StrategyDecision(AgentActionKind.Stop, 10, "simultaneous-start", 0, "Done.", "strategy-v1", "fake", "i-1"));
     }
 }

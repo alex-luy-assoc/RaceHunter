@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using RaceHunter.Application.Abstractions;
@@ -12,7 +14,8 @@ internal sealed class DurableFindingReplayProbe(
     int remainingRequests,
     IFindingProbeCheckpointStore checkpoints,
     Func<string, ReplayCandidate, ReplayTargetMode, CancellationToken, Task<int>> measureUniqueWork,
-    Func<string, ReplayCandidate, ReplayTargetMode, CancellationToken, Task<ReplayObservation>> executePhysical) : IKeyedReplayProbe
+    Func<string, ReplayCandidate, ReplayTargetMode, CancellationToken, Task<ReplayObservation>> executePhysical,
+    int durablePreReservedRequestsPerExecution = 0) : IKeyedReplayProbe
 {
     private int remaining = remainingRequests;
 
@@ -36,11 +39,31 @@ internal sealed class DurableFindingReplayProbe(
 
         var required = await measureUniqueWork(probeKey, candidate, mode, cancellationToken);
         if (required > remaining) return new ReplayObservation(InvariantOutcome.Inconclusive, []);
+        if (durablePreReservedRequestsPerExecution < 0 || durablePreReservedRequestsPerExecution > required)
+            throw new InvalidOperationException("The durable physical-request reservation is invalid.");
+        if (durablePreReservedRequestsPerExecution > 0)
+        {
+            var reservationKey = ReservationKey(probeKey);
+            await checkpoints.SaveAsync(new FindingProbeCheckpoint(
+                runId,
+                reservationKey,
+                "request-reservation",
+                ParseOrdinal(probeKey.Split(':')),
+                candidateJson,
+                InvariantOutcome.Inconclusive.ToString(),
+                [],
+                durablePreReservedRequestsPerExecution,
+                DateTime.UtcNow), cancellationToken);
+            remaining -= durablePreReservedRequestsPerExecution;
+        }
         var observation = await executePhysical(probeKey, candidate, mode, cancellationToken);
         var consumed = observation.RequestsConsumed < 0 ? candidate.Steps.Count : observation.RequestsConsumed;
-        if (consumed > remaining)
+        var consumedAfterReservation = consumed - durablePreReservedRequestsPerExecution;
+        if (consumedAfterReservation < 0)
+            throw new InvalidOperationException("Physical work did not account for its durable request reservation.");
+        if (consumedAfterReservation > remaining)
             throw new InvalidOperationException("Physical work exceeded the durable request budget after recovery accounting.");
-        remaining -= consumed;
+        remaining -= consumedAfterReservation;
         var parts = probeKey.Split(':');
         await checkpoints.SaveAsync(new FindingProbeCheckpoint(
             runId,
@@ -50,9 +73,16 @@ internal sealed class DurableFindingReplayProbe(
             candidateJson,
             observation.Outcome.ToString(),
             observation.TraceReferences,
-            consumed,
+            consumedAfterReservation,
             DateTime.UtcNow), cancellationToken);
         return observation;
+    }
+
+    private static string ReservationKey(string probeKey)
+    {
+        var nonce = Guid.NewGuid().ToString("N");
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{probeKey}:{nonce}"))).ToLowerInvariant();
+        return $"request-reservation:{hash}";
     }
 
     internal static string CandidateJson(ReplayCandidate candidate) => JsonSerializer.Serialize(new

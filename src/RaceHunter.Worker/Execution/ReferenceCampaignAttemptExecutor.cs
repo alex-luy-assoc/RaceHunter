@@ -19,6 +19,8 @@ internal sealed class ReferenceCampaignAttemptExecutor(
     ITraceStore traceStore,
     IRunAttemptStore attemptStore)
 {
+    internal const int ReferenceSnapshotRequestsPerAttempt = 1;
+
     public Task<DeterministicAttemptResult> ExecuteAsync(
         Guid runId,
         ExperimentBudget campaignBudget,
@@ -136,7 +138,37 @@ internal sealed class ReferenceCampaignAttemptExecutor(
                 await attemptStore.SaveAsync(attempt, CancellationToken.None);
                 throw new OperationCanceledException(cancellationToken);
             }
-            var observations = result.Executions.SelectMany(item => item.TargetResult.Observations).ToArray();
+            var responseObservations = result.Executions.SelectMany(item => item.TargetResult.Observations).ToArray();
+            IReadOnlyCollection<Observation> observations = responseObservations;
+            if (!manualTargetId.HasValue)
+            {
+                var snapshotRequestId = Guid.NewGuid().ToString("N");
+                var snapshotTrace = new TraceEvent(
+                    ++nextSequence,
+                    runId,
+                    attempt.Id,
+                    0,
+                    "inventory-snapshot",
+                    "request-started",
+                    snapshotRequestId,
+                    DateTime.UtcNow);
+                await traceStore.AppendAsync(snapshotTrace, CancellationToken.None);
+                persisted.Add(snapshotTrace);
+                requestsConsumed++;
+                var snapshot = await target.GetInventorySnapshotAsync(snapshotRequestId, cancellationToken);
+                var snapshotResponseTrace = new TraceEvent(
+                    ++nextSequence,
+                    runId,
+                    attempt.Id,
+                    0,
+                    "inventory-snapshot",
+                    "response-success",
+                    snapshotRequestId,
+                    DateTime.UtcNow);
+                await traceStore.AppendAsync(snapshotResponseTrace, CancellationToken.None);
+                persisted.Add(snapshotResponseTrace);
+                observations = SelectReferenceInvariantObservations(responseObservations, snapshot.Observations);
+            }
             var invariantResult = new InvariantEvaluatorRegistry().Evaluate(invariant, observations);
             RaceHunterTelemetry.InvariantOutcomes.Add(1, new KeyValuePair<string, object?>("outcome", invariantResult.Outcome.ToString()));
             attempt.Complete(DateTime.UtcNow);
@@ -160,6 +192,14 @@ internal sealed class ReferenceCampaignAttemptExecutor(
             throw;
         }
     }
+
+    internal static IReadOnlyCollection<Observation> SelectReferenceInvariantObservations(
+        IReadOnlyCollection<Observation> responseObservations,
+        IReadOnlyCollection<Observation> snapshotObservations) =>
+        responseObservations
+            .Where(item => item.Metric is not ("successful-orders" or "inventory-capacity"))
+            .Concat(snapshotObservations)
+            .ToArray();
 
     private static string SelectManualOperation(ScheduledActor actor)
     {
