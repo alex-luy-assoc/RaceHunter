@@ -198,12 +198,12 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 - [x] `deploy/scripts/StagingRelease.psm1` — approval, state-machine, plan binding, redaction, and evidence helpers.
 - [x] `deploy/scripts/staging-release.ps1` — resumable local/preflight/foundation/plan/deploy/validate/demo orchestration entry point.
 - [x] `deploy/scripts/staging-evidence.schema.json` — versioned machine-readable sanitized evidence contract.
-- [ ] `deploy/terraform/bootstrap/providers.tf` — minimal provider and local-to-remote state bootstrap contract.
-- [ ] `deploy/terraform/bootstrap/variables.tf` — project, region, repository, and protected state-bucket inputs.
-- [ ] `deploy/terraform/bootstrap/main.tf` — required APIs, Artifact Registry, and private versioned Terraform state bucket.
-- [ ] `deploy/terraform/bootstrap/outputs.tf` — non-secret foundation identifiers consumed by the release orchestrator.
+- [x] `deploy/terraform/bootstrap/providers.tf` — minimal provider and local-to-remote state bootstrap contract.
+- [x] `deploy/terraform/bootstrap/variables.tf` — project, region, repository, and protected state-bucket inputs.
+- [x] `deploy/terraform/bootstrap/main.tf` — required APIs, Artifact Registry, and private versioned Terraform state bucket.
+- [x] `deploy/terraform/bootstrap/outputs.tf` — non-secret foundation identifiers consumed by the release orchestrator.
 - [x] `tests/RaceHunter.Architecture.Tests/StagingReleaseContractTests.cs` — executable approval, evidence, plan, and infrastructure contracts.
-- [ ] `docs/demo/staging-evidence.md` — sanitized environment-qualified submission evidence report populated only from observed results.
+- [x] `docs/demo/staging-evidence.md` — sanitized environment-qualified submission evidence report populated only from observed results.
 
 ### Phases
 - [x] Phase 1: Build the approval-gated release state machine and sanitized evidence contract. ✓
@@ -227,10 +227,17 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
   **Build/Lint**: .NET and web builds PASS; web lint and `git diff --check` PASS.
   **Code Review**: APPROVED after two review-remediation loops and one post-commit qualification-regression loop; code security PASS; 230 resolved dependency/version pairs audited with no vulnerable packages or upgrades required.
   **Evidence Boundary**: The immutable candidate can now be qualified locally from a clean committed checkout and emits an exact, default-deny Preflight request. No Google credential use, authenticated API call, billable mutation, image publication, state migration, Terraform plan/apply, deployment, staging smoke, demo, cleanup, or destruction occurred.
-- [ ] Phase 4: After fresh credential, billable-resource, and deployment approvals, prepare and deploy staging and prove live Gemini plus Google Cloud integrations.
+- [x] Phase 4: After fresh credential, billable-resource, and deployment approvals, prepare and deploy staging and prove live Gemini plus Google Cloud integrations. ✓
 
-  **Recovery checkpoint (2026-08-24)**: Foundation remains complete and the three immutable images remain reusable because their Docker build inputs have not changed. The first application apply partially created 40 managed resources before Cloud SQL rejected `db-f1-micro` under the PostgreSQL 17 `ENTERPRISE_PLUS` default and Billing Budgets rejected a user access token without an explicit quota project. After those defects were corrected, the exact recovery apply exposed a second ordering defect: the reference-target Cloud Run service began before its `latest` database secret version existed. Read-only reconciliation now records 51 Terraform addresses, including both SQL stacks, both database secret versions, the budget, and the reference-target service, without state locking or mutation. RED→GREEN contracts require every Cloud Run service to depend explicitly on each generated secret version it consumes; the corrected Terraform passes the 14 focused deployment contracts, all 49 architecture contracts, and pinned Terraform formatting, isolated initialization, and validation. Every stale saved plan and Plan/Deploy approval remains invalid; recovery must create a new commit-bound exact plan gate without repeating Foundation provisioning or image publication.
+  **Completed**: 2026-08-25
+  **Deployment Evidence**: Foundation binding `7567c87d2fd730cb00555ad2b4d786b73adc90d6f3f71c165b29d98d4ce2b399`; immutable API, worker, and reference-target digests; exact saved-plan apply; route validation 200/403/403; deletion protection preserved.
+  **Recovery Evidence**: Every partial/ambiguous apply stopped without retry and was reconciled read-only before a fresh exact gate. Cloud SQL edition, quota-project routing, secret ordering/version binding, target cold-start retry, global inventory observation, and deterministic strategy-stop defects were corrected RED→GREEN.
 - [ ] Phase 5: Run the golden-path smoke, record a separate unedited sub-four-minute demo, reconcile environment-qualified evidence, and complete the submission checklist.
+
+  **Partial Evidence**: 2026-08-25
+  **Smoke Evidence**: Hunt `08071bfc-ada1-4517-b595-b234f1fd24f4`, run `d8e4e344-8bd9-4436-8454-587c6f37dc96`, finding `12c04495-2d5c-4693-b089-5bdb53a55854`, 1.8-second approved completion boundary, immutable fingerprint `sha256:10efcf70891b6d075a82beb906a45aa737821ad3ed371879f1873b741bc383ef`.
+  **Demo Evidence**: Exact trace-bound hunt `162877ca-0f11-4efb-a61c-69bf05713ca0`, run `80b413e0-d747-4144-9c33-62258fccee9d`, finding `f9ca8dd2-d7f6-c3dc-0eb9-18da3adf2681`; the separately approved existing-run completion passed Playwright 1/1 in 4.9 seconds and produced exactly one final completion video with SHA-256 `8e0fed2c177f70b4e0b72e4da6540007f5965999657e286862481a4889a5ed57`.
+  **Blocker**: The report explicitly preserves the prior local browser failures and separate unedited recordings; it does not represent them as one uninterrupted take. AC-VERIFY-6 still requires a fresh uninterrupted New Hunt-to-Verify Fix recording under four minutes, which is not authorized by the current closeout.
 
 ## Creative Phases
 
@@ -244,10 +251,10 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 ## Execution State
 
 **Build Status**: IN_PROGRESS
-**Current Build**: Phase 4: Recover the partial staging deployment, rebuild the exact application plan binding, and deploy only after fresh approval (deploy-racehunter-staging-and-complete-submission)
+**Current Build**: Phase 5 blocked on one fresh uninterrupted New Hunt-to-Verify Fix demo recording
 **Build Started**: 2026-08-23T14:00:00Z
-**Last Completed**: Phase 3: Qualify the immutable release candidate locally and stop at the credential-use gate with a complete preflight request
-**Phase Number**: 4 of 5
+**Last Completed**: Phase 4: Staging deployment, validation, and live Google Cloud integration proof
+**Phase Number**: 5 of 5
 **Is Multi-Phase**: YES
 **Can Resume**: YES
 **PLAN BACKEND**: anthropic — configured
@@ -257,12 +264,15 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 
 ### Current Build Step
 **Step**: Step 11 - Recovery Git Completion
-**Status**: IN_PROGRESS
+**Status**: BLOCKED
 **Started**: 2026-08-24T12:41:35Z
 **Completed**: —
-**Output**: Deployment, topology, and external route validation succeeded. The widened exact worker log window proved the preserved run failed when the private reference target cold-started beyond the worker's 10-second `HttpClient` timeout; the dispatcher then misclassified the timeout as terminal cancellation. Credential-free TDD now uses a 30-second bounded target timeout and retryable target classification without changing caller cancellation. The next mandatory gate publishes only the changed worker and creates one exact saved recovery plan; API/reference images and Foundation remain preserved.
+**Output**: Phase 4 deployment and validation are complete. Smoke and exact existing-run recovery evidence are preserved, but the separate recordings do not satisfy AC-VERIFY-6's single uninterrupted full-journey demo. A fresh exact approval is required before one new full demo; no additional staging action is authorized now.
 
 ### Completed Steps
+- Step 11 Existing-Run Recovery Evidence: COMPLETE (2026-08-25T18:25:59Z) - ExistingDemoRunCompletion passed Playwright 1/1, reached ReleaseComplete, produced finding `f9ca8dd2-d7f6-c3dc-0eb9-18da3adf2681`, and emitted exactly one final completion video with SHA-256 `8e0fed2c177f70b4e0b72e4da6540007f5965999657e286862481a4889a5ed57`; this does not qualify as the uninterrupted full demo.
+- Step 10 Recovery Memory Bank: COMPLETE (2026-08-25T18:25:59Z) - Phase 4 completion, sanitized staging evidence, checklist links, immutable identities, and the transparent split-recording Phase 5 blocker were recorded.
+- Step 8 Final Recovery Review: COMPLETE (2026-08-25T18:25:59Z) - Independent review confirmed exact trace-derived run identity, no hunt/plan/run creation path, permanent one-shot marker, no credentials/control-plane capability, and one-video qualification.
 - Step 3 Recovery TDD (worker cold-start timeout): COMPLETE (2026-08-25T03:05:00Z) - RED produced two failures: 10 seconds did not meet the 30-second cold-start allowance and a non-caller-cancelled `TaskCanceledException` was categorized as Cancellation; genuine caller cancellation passed. Review RED then exposed terminal run state despite dispatcher retry. GREEN centralizes a 30-second target bound below the 90-second campaign budget, recognizes only the `HttpClient` timeout shape during RunRequested work, persists a non-terminal idempotent retry event, and excludes planning/caller cancellation.
 - Step 7 Recovery Verification (worker cold-start timeout): COMPLETE (2026-08-25T03:10:00Z) - Focused recovery contracts 5/5 PASS, full worker tests 37/37 PASS, architecture contracts 53/53 PASS, formatting and diff checks PASS. The wider precompiled repository run additionally passed Application 21/21; database-backed API tests were environment-blocked by denied Docker named-pipe access, while the normal solution command was environment-blocked by NuGet repository-signature access.
 - Step 8 Recovery Review (worker cold-start timeout): COMPLETE (2026-08-25T03:18:00Z) - Independent review PASS after closing terminal run state: retry recognition now requires RunRequested plus the `HttpClient` timeout shape, the campaign remains active with a constant retry event, inbox retry is idempotent, and planning/caller/lease/durable/budget cancellation paths remain distinct.
@@ -358,6 +368,7 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 - Documentation Agent: COMPLETE (2026-08-19T16:23:00Z) - Updated inline documentation, README, techContext, and systemPatterns.
 
 ### Guard & Recovery Log
+- 2026-08-25: `ExistingDemoRunCompletion` reused only hunt `162877ca-0f11-4efb-a61c-69bf05713ca0` and trace-derived run `80b413e0-d747-4144-9c33-62258fccee9d`; it created no hunt, plan, or run. Playwright passed 1/1 in 4.9 seconds, the durable state reached `ReleaseComplete`, finding `f9ca8dd2-d7f6-c3dc-0eb9-18da3adf2681` completed its idempotent verify-fix replay, and exactly one final completion video hashed to `8e0fed2c177f70b4e0b72e4da6540007f5965999657e286862481a4889a5ed57`. The sanitized evidence report preserves the separate prior recording and does not claim an uninterrupted single take.
 - 2026-08-25: `DemoReplacementCompletion2` created hunt `162877ca-0f11-4efb-a61c-69bf05713ca0` and successfully received `202` for run `80b413e0-d747-4144-9c33-62258fccee9d`, but the SPA navigated before the test consumed `response.json()`. The retained Playwright trace conclusively binds the response `Location` and subsequent successful run-page navigation. Run-response JSON is now buffered immediately when the response arrives, and `ExistingDemoRunCompletion` requires an exact preseeded hunt/run progress record so the browser cannot POST another hunt, plan, or run.
 - 2026-08-25: The approved `DemoReplacementCompletion` invocation stopped locally under strict mode while validating the intentionally absent failed-demo `runId`, before its permanent attempt marker, artifact directory, browser process, or staging request existed. Optional failed-demo fields now use the strict-mode-safe property helper and have an executable missing-property regression fixture. The consumed zero-external-action invocation remains preserved; a fresh one-shot `DemoReplacementCompletion2` gate must use a different permanent marker and artifact directory while seeding the already-complete smoke evidence.
 - 2026-08-25: Existing-finding smoke resumed and completed in 1.8 seconds, preserving finding `12c04495-2d5c-4693-b089-5bdb53a55854`. The first browser demo created hunt `434c9958-1848-47d8-b543-a0fec933cbb8` but no run, then local automation issued a redundant `page.goto` while the SPA was already navigating to Plan Review and received `ERR_ABORTED`. The demo now waits for the exact plan URL and page state after Generate Plan and conditionally navigates only during recovery. A narrowly approved `DemoReplacementCompletion` may seed the already-complete smoke evidence and run exactly one fresh replacement demo without replaying smoke.
@@ -379,8 +390,8 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 
 ### Resumption Notes
 **Can Resume**: YES
-**Resume From**: Phase 4 recovery via `/ala:build deploy-racehunter-staging-and-complete-submission`
-**Notes**: Foundation, immutable API/reference-target publication, application deployment, topology validation, and external route validation remain complete and must not be repeated. The worker global-invariant implementation changed and requires a new immutable worker image. Resume only from a fresh exact `PublishWorkerAndPlan` gate that publishes that worker image, preserves the existing API/reference/Foundation inputs, and creates one saved application plan for review. It authorizes no apply, smoke, demo, cleanup, destruction, IAM/API change, other image operation, or credential creation.
+**Resume From**: Phase 5 exact approval for one fresh uninterrupted New Hunt-to-Verify Fix demo recording.
+**Notes**: Foundation, immutable images, application deployment, route validation, golden-path smoke, and the approved existing-run recovery evidence are complete and must not be repeated. The only remaining acceptance gap is AC-VERIFY-6 and the corresponding unchecked checklist item. No further demo, cleanup, or destruction is authorized without a fresh exact request.
 
 ## Plan Critique
 

@@ -1,13 +1,13 @@
 # RaceHunter Submission Checklist
 
-- [ ] Unedited demo is under four minutes and follows `demo-script.md`.
-- [ ] Live journey starts from the plain-language invariant and requires one **Approve & Run** action.
-- [ ] Finding shows deterministic evidence, 3/3 measured reproduction, two-actor minimization, causal timeline, agent activity, and immutable fingerprint.
-- [ ] Verify Fix shows vulnerable **Fail** and fixed **Pass** for the same artifact.
-- [ ] Cloud Proof shows the deployed API revision, private worker, Pub/Sub, Gemini/schema, Cloud SQL, OIDC auth, run, and trace identifiers.
-- [ ] Architecture image/diagram matches the three checked-in Dockerfiles and Terraform.
-- [ ] README setup was repeated from a clean checkout; local real Playwright and Compose golden path pass.
-- [ ] Terraform `fmt`, offline init, and validate pass in the pinned official container; no apply occurs during validation.
-- [ ] NuGet/npm vulnerability audits and repository secret scan report no findings.
-- [ ] No credentials, personal data, chain-of-thought, fabricated incident, or unsupported reproducibility claim appears in the submission.
-- [ ] Google Cloud deployment/apply and the consolidated application-layer smoke/demo completion were performed only after their exact owner approvals.
+- [ ] One fresh uninterrupted unedited demo under four minutes follows `demo-script.md` from New Hunt through Verify Fix. Blocker: the approved recovery produced separate pre-run and 4.5-second existing-run completion recordings; see [Browser recovery evidence and remaining demo gap](staging-evidence.md#browser-recovery-evidence-and-remaining-demo-gap).
+- [x] Live journey starts from the plain-language invariant and requires one **Approve & Run** action. See [Automated staging smoke](staging-evidence.md#automated-staging-smoke) and [Browser recovery evidence](staging-evidence.md#browser-recovery-evidence-and-remaining-demo-gap).
+- [x] Finding shows deterministic evidence, 3/3 measured reproduction, two-actor minimization, causal timeline, agent activity, and immutable fingerprint. See [Automated staging smoke](staging-evidence.md#automated-staging-smoke).
+- [x] Verify Fix shows vulnerable **Fail** and fixed **Pass** for the same artifact. See [Automated staging smoke](staging-evidence.md#automated-staging-smoke).
+- [x] Cloud Proof shows the deployed API revision, private worker, Pub/Sub, Gemini/schema, Cloud SQL, OIDC auth, run, and trace identifiers. See [Deployment and route validation](staging-evidence.md#deployment-and-route-validation) and [Automated staging smoke](staging-evidence.md#automated-staging-smoke).
+- [x] Architecture image/diagram matches the three checked-in Dockerfiles and Terraform. See [Qualification boundary](staging-evidence.md#qualification-boundary).
+- [x] README setup was repeated from a clean checkout; local real Playwright and Compose golden path pass. See [Local and supply-chain verification](staging-evidence.md#local-and-supply-chain-verification).
+- [x] Terraform `fmt`, offline init, and validate pass in the pinned official container; no apply occurs during validation. See [Local and supply-chain verification](staging-evidence.md#local-and-supply-chain-verification).
+- [x] NuGet/npm vulnerability audits and repository secret scan report no findings. See [Local and supply-chain verification](staging-evidence.md#local-and-supply-chain-verification).
+- [x] No credentials, personal data, chain-of-thought, fabricated incident, or unsupported reproducibility claim appears in the submission. See [Evidence integrity](staging-evidence.md#evidence-integrity).
+- [x] Google Cloud deployment/apply and every application-layer smoke/demo attempt were performed only after their exact owner approvals. See [Deployment and route validation](staging-evidence.md#deployment-and-route-validation) and [Browser recovery evidence](staging-evidence.md#browser-recovery-evidence-and-remaining-demo-gap).
