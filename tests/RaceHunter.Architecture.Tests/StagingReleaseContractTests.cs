@@ -337,6 +337,7 @@ public sealed class StagingReleaseContractTests
         Assert.Contains("DemoComplete", coordinator, StringComparison.Ordinal);
         Assert.Contains("AmbiguousMutation", coordinator, StringComparison.Ordinal);
         Assert.Contains("ExistingFindingCompletionResume", coordinator, StringComparison.Ordinal);
+        Assert.Contains("DemoReplacementCompletion", coordinator, StringComparison.Ordinal);
         Assert.Contains("existingRunId", coordinator, StringComparison.Ordinal);
         Assert.Contains("existingFindingId", coordinator, StringComparison.Ordinal);
         Assert.Contains("destination progress identity drifted", coordinator, StringComparison.Ordinal);
@@ -355,6 +356,8 @@ public sealed class StagingReleaseContractTests
         Assert.Contains("demoAttemptStarted", browser, StringComparison.Ordinal);
         Assert.Contains("runCreateStarted", browser, StringComparison.Ordinal);
         Assert.Contains("RACEHUNTER_DEMO_DEADLINE_UTC", browser, StringComparison.Ordinal);
+        Assert.Contains("waitForURL", browser, StringComparison.Ordinal);
+        Assert.Contains("new URL(page.url()).pathname", browser, StringComparison.Ordinal);
         Assert.Contains("Open verified finding", browser, StringComparison.Ordinal);
         Assert.DoesNotContain("gcloud", coordinator, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("terraform", coordinator, StringComparison.OrdinalIgnoreCase);

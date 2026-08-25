@@ -38,7 +38,7 @@ if (-not (Test-Path -LiteralPath $requestPath -PathType Leaf) -or (Get-FileSha $
     throw 'ReleaseCompletion request bytes do not match the exact approved SHA-256.'
 }
 $request = Read-Json $requestPath
-if ([string]$request.schemaVersion -cne '1.0' -or [string]$request.stage -cnotin @('ReleaseCompletion', 'RecoveryCompletion', 'ExistingFindingCompletionResume') -or $request.valid -isnot [bool] -or -not $request.valid) {
+if ([string]$request.schemaVersion -cne '1.0' -or [string]$request.stage -cnotin @('ReleaseCompletion', 'RecoveryCompletion', 'ExistingFindingCompletionResume', 'DemoReplacementCompletion') -or $request.valid -isnot [bool] -or -not $request.valid) {
     throw 'ReleaseCompletion request is invalid or default denied.'
 }
 

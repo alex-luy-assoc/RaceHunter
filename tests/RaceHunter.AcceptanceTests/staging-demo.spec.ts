@@ -53,10 +53,14 @@ test('one unedited fresh staging demo follows the documented journey', async ({ 
     await page.getByRole('button', { name: 'Generate Plan' }).click()
     progress.huntId = String((await (await created).json()).id)
     saveProgress(progress)
+    await page.waitForURL(url => url.pathname === `/hunts/${progress.huntId}/plan`)
+    await expect(page.getByRole('heading', { name: 'Approve once. Run unattended.' })).toBeVisible()
   }
 
   if (!progress.runId) {
-    await page.goto(`/hunts/${progress.huntId}/plan`)
+    const planPath = `/hunts/${progress.huntId}/plan`
+    if (new URL(page.url()).pathname !== planPath) await page.goto(planPath)
+    await expect(page.getByRole('heading', { name: 'Approve once. Run unattended.' })).toBeVisible()
     const approve = page.getByRole('button', { name: 'Approve & Run' })
     await expect(approve).toBeVisible()
     await page.evaluate(({ key, value }) => localStorage.setItem(key, value), {
