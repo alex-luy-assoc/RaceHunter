@@ -182,6 +182,26 @@ public sealed class PublicReleaseSurfaceTests
         }
     }
 
+    [Fact]
+    public void Public_release_audit_scans_tracked_dotfiles_portably()
+    {
+        var temporaryRoot = CreateRepository();
+        try
+        {
+            File.WriteAllText(Path.Combine(temporaryRoot, ".dockerignore"), "**/bin\n**/obj\n");
+            Run("git", temporaryRoot, "add", ".dockerignore");
+            Run("git", temporaryRoot, "commit", "--quiet", "-m", "tracked dotfile");
+
+            var result = Audit(temporaryRoot);
+
+            Assert.Equal(0, result.ExitCode);
+        }
+        finally
+        {
+            DeleteRepository(temporaryRoot);
+        }
+    }
+
     private static string CreateRepository()
     {
         var temporaryRoot = Path.Combine(Path.GetTempPath(), $"racehunter-public-audit-{Guid.NewGuid():N}");

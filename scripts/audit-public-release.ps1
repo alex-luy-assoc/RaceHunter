@@ -127,7 +127,9 @@ foreach ($candidate in $workingTreePaths) {
     }
     $fullPath = Join-Path $RepositoryRoot $candidate
     if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) { continue }
-    if ((Get-Item -LiteralPath $fullPath).Length -gt $MaximumBlobBytes) {
+    # PowerShell treats dotfiles as hidden on Unix; -Force keeps this path
+    # portable for clean GitHub Actions checkouts containing .dockerignore, etc.
+    if ((Get-Item -LiteralPath $fullPath -Force).Length -gt $MaximumBlobBytes) {
         $findings.Add([ordered]@{ kind = 'unscanned-candidate'; rule = 'size-limit'; object = 'working-tree'; path = $normalized })
         continue
     }
