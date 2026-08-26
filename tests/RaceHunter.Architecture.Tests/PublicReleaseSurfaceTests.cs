@@ -24,6 +24,7 @@ public sealed class PublicReleaseSurfaceTests
         Assert.Contains("Gemini 3.5 Flash", readme, StringComparison.Ordinal);
         Assert.Contains("Google.GenAI", readme, StringComparison.Ordinal);
         Assert.Contains("Google Cloud", readme, StringComparison.Ordinal);
+        Assert.Contains("https://racehunter-api-vvkcj4sdma-ue.a.run.app", readme, StringComparison.Ordinal);
         Assert.Contains("docs/architecture/racehunter-google-cloud.png", readme, StringComparison.Ordinal);
         Assert.Contains("Quick start", readme, StringComparison.Ordinal);
         Assert.Contains("Security model", readme, StringComparison.Ordinal);
@@ -34,6 +35,10 @@ public sealed class PublicReleaseSurfaceTests
         Assert.Contains("github_fine_grained", audit, StringComparison.Ordinal);
         Assert.Contains("exit 0", audit, StringComparison.Ordinal);
         Assert.Contains("workflow_dispatch:", workflow, StringComparison.Ordinal);
+        Assert.Matches(@"uses: actions/checkout@[0-9a-f]{40} # v7", workflow);
+        Assert.Matches(@"uses: actions/setup-dotnet@[0-9a-f]{40} # v6", workflow);
+        Assert.Matches(@"uses: actions/setup-node@[0-9a-f]{40} # v7", workflow);
+        Assert.Contains("contents: read", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet test", workflow, StringComparison.Ordinal);
         Assert.Contains("package-ecosystem: nuget", dependabot, StringComparison.Ordinal);
         Assert.Contains("package-ecosystem: npm", dependabot, StringComparison.Ordinal);

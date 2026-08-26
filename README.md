@@ -9,6 +9,8 @@
 [![Google Cloud](https://img.shields.io/badge/Google%20Cloud-Cloud%20Run%20%7C%20Vertex%20AI-4285F4)](https://cloud.google.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+**Live staging:** [Launch RaceHunter](https://racehunter-api-vvkcj4sdma-ue.a.run.app) — a bounded, non-production public sandbox.
+
 **All Things Agentic track:** Taskmaster — a complete autonomous workflow, not
 a chatbot.
 
