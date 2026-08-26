@@ -32,6 +32,7 @@ public sealed class PublicReleaseSurfaceTests
         Assert.Contains("git rev-list --objects --all", audit, StringComparison.Ordinal);
         Assert.Contains("private_key", audit, StringComparison.Ordinal);
         Assert.Contains("github_fine_grained", audit, StringComparison.Ordinal);
+        Assert.Contains("workflow_dispatch:", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet test", workflow, StringComparison.Ordinal);
         Assert.Contains("package-ecosystem: nuget", dependabot, StringComparison.Ordinal);
         Assert.Contains("package-ecosystem: npm", dependabot, StringComparison.Ordinal);
