@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.400
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            src/RaceHunter.Web/package-lock.json
+            tests/RaceHunter.AcceptanceTests/package-lock.json
+      - name: Restore .NET
+        run: dotnet restore RaceHunter.slnx
+      - name: Build .NET
+        run: dotnet build RaceHunter.slnx -c Release --no-restore
+      - name: Test architecture and unit suites
+        run: dotnet test RaceHunter.slnx -c Release --no-build --filter "FullyQualifiedName!~IntegrationTests"
+      - name: Install and test web
+        run: |
+          npm ci --prefix src/RaceHunter.Web
+          npm test --prefix src/RaceHunter.Web
+          npm run lint --prefix src/RaceHunter.Web
+          npm run build --prefix src/RaceHunter.Web
+      - name: Validate Compose
+        run: docker compose config --quiet
+      - name: Audit public Git history
+        shell: pwsh
+        run: ./scripts/audit-public-release.ps1

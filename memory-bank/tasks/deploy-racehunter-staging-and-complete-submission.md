@@ -237,6 +237,7 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
   **Partial Evidence**: 2026-08-25
   **Smoke Evidence**: Hunt `08071bfc-ada1-4517-b595-b234f1fd24f4`, run `d8e4e344-8bd9-4436-8454-587c6f37dc96`, finding `12c04495-2d5c-4693-b089-5bdb53a55854`, 1.8-second approved completion boundary, immutable fingerprint `sha256:10efcf70891b6d075a82beb906a45aa737821ad3ed371879f1873b741bc383ef`.
   **Demo Evidence**: Exact trace-bound hunt `162877ca-0f11-4efb-a61c-69bf05713ca0`, run `80b413e0-d747-4144-9c33-62258fccee9d`, finding `f9ca8dd2-d7f6-c3dc-0eb9-18da3adf2681`; the separately approved existing-run completion passed Playwright 1/1 in 4.9 seconds and produced exactly one final completion video with SHA-256 `8e0fed2c177f70b4e0b72e4da6540007f5965999657e286862481a4889a5ed57`.
+  **Public Release Hardening**: Judge-oriented README, MIT licensing, private vulnerability reporting, CI, Dependabot, a clean-name architecture diagram, and a redacted all-history credential scanner are complete locally. Publication is allowed only after the independent review and post-commit history audit pass.
   **Blocker**: The report explicitly preserves the prior local browser failures and separate unedited recordings; it does not represent them as one uninterrupted take. AC-VERIFY-6 still requires a fresh uninterrupted New Hunt-to-Verify Fix recording under four minutes, which is not authorized by the current closeout.
 
 ## Creative Phases
@@ -251,7 +252,7 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 ## Execution State
 
 **Build Status**: IN_PROGRESS
-**Current Build**: Phase 5 blocked on one fresh uninterrupted New Hunt-to-Verify Fix demo recording
+**Current Build**: Phase 5 public-release hardening; uninterrupted New Hunt-to-Verify Fix demo remains blocked
 **Build Started**: 2026-08-23T14:00:00Z
 **Last Completed**: Phase 4: Staging deployment, validation, and live Google Cloud integration proof
 **Phase Number**: 5 of 5
@@ -263,13 +264,14 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 **CODE REVIEW BACKEND**: anthropic — codex unavailable (`unresolved:no-companion`; `C:\Users\alexa\.claude\plugins` absent); auto fallback
 
 ### Current Build Step
-**Step**: Step 11 - Recovery Git Completion
-**Status**: BLOCKED
-**Started**: 2026-08-24T12:41:35Z
+**Step**: Step 12 - Public Release Hardening and Publication
+**Status**: IN_PROGRESS
+**Started**: 2026-08-26T15:30:00Z
 **Completed**: —
-**Output**: Phase 4 deployment and validation are complete. Smoke and exact existing-run recovery evidence are preserved, but the separate recordings do not satisfy AC-VERIFY-6's single uninterrupted full-journey demo. A fresh exact approval is required before one new full demo; no additional staging action is authorized now.
+**Output**: Local judge/security hardening and history audit are in review. Public repository publication must wait for review, a committed-history rescan, and conclusive GitHub authorization. The separate recordings still do not satisfy AC-VERIFY-6; no staging action is authorized.
 
 ### Completed Steps
+- Step 12 Public Release TDD and Local Verification: COMPLETE (2026-08-26) - MIT, SECURITY.md, CI, Dependabot, the judge-first README, clean architecture asset, MP4 exclusion, and a redacted reachable-history scanner delivered GREEN. Six runtime contracts cover deleted, staged-only, sensitive-path, former-exemption, commit/tag-message, and oversized-candidate cases without echoing values. Its final pre-commit pass reported 0 findings across 1,298 reachable objects, 260 unique historical paths, 45 commit messages, 0 annotated tags, 260 index candidates, and 267 working-tree candidates. NuGet and both npm production trees reported no vulnerable packages; architecture 63/63, security 24/24, application 23/23, reference-target 19/19, and web 8/8 passed with web lint/build and Compose validation.
 - Step 11 Existing-Run Recovery Evidence: COMPLETE (2026-08-25T18:25:59Z) - ExistingDemoRunCompletion passed Playwright 1/1, reached ReleaseComplete, produced finding `f9ca8dd2-d7f6-c3dc-0eb9-18da3adf2681`, and emitted exactly one final completion video with SHA-256 `8e0fed2c177f70b4e0b72e4da6540007f5965999657e286862481a4889a5ed57`; this does not qualify as the uninterrupted full demo.
 - Step 10 Recovery Memory Bank: COMPLETE (2026-08-25T18:25:59Z) - Phase 4 completion, sanitized staging evidence, checklist links, immutable identities, and the transparent split-recording Phase 5 blocker were recorded.
 - Step 8 Final Recovery Review: COMPLETE (2026-08-25T18:25:59Z) - Independent review confirmed exact trace-derived run identity, no hunt/plan/run creation path, permanent one-shot marker, no credentials/control-plane capability, and one-video qualification.
@@ -368,6 +370,7 @@ Yes. Extend the current immutable-digest and explicit-approval patterns from `de
 - Documentation Agent: COMPLETE (2026-08-19T16:23:00Z) - Updated inline documentation, README, techContext, and systemPatterns.
 
 ### Guard & Recovery Log
+- 2026-08-26: Public-release hardening scanned every reachable file revision, commit and annotated-tag message, staged index entry, and public working-tree candidate with redacted metadata-only output. High-confidence credential shapes and sensitive history paths returned zero findings; binary content is scanned and an oversized working candidate fails closed. Runtime fixtures prove deleted, staged-only, metadata-message, former-path-exemption, and sensitive-path findings never echo their values. The user-provided architecture PNG remains untouched and ignored while an identical clean-name copy is proposed for the repository; raw MP4 files are globally ignored and none was found. Publication remains gated on independent review and a post-commit rescan, and does not authorize staging or cloud mutation.
 - 2026-08-25: `ExistingDemoRunCompletion` reused only hunt `162877ca-0f11-4efb-a61c-69bf05713ca0` and trace-derived run `80b413e0-d747-4144-9c33-62258fccee9d`; it created no hunt, plan, or run. Playwright passed 1/1 in 4.9 seconds, the durable state reached `ReleaseComplete`, finding `f9ca8dd2-d7f6-c3dc-0eb9-18da3adf2681` completed its idempotent verify-fix replay, and exactly one final completion video hashed to `8e0fed2c177f70b4e0b72e4da6540007f5965999657e286862481a4889a5ed57`. The sanitized evidence report preserves the separate prior recording and does not claim an uninterrupted single take.
 - 2026-08-25: `DemoReplacementCompletion2` created hunt `162877ca-0f11-4efb-a61c-69bf05713ca0` and successfully received `202` for run `80b413e0-d747-4144-9c33-62258fccee9d`, but the SPA navigated before the test consumed `response.json()`. The retained Playwright trace conclusively binds the response `Location` and subsequent successful run-page navigation. Run-response JSON is now buffered immediately when the response arrives, and `ExistingDemoRunCompletion` requires an exact preseeded hunt/run progress record so the browser cannot POST another hunt, plan, or run.
 - 2026-08-25: The approved `DemoReplacementCompletion` invocation stopped locally under strict mode while validating the intentionally absent failed-demo `runId`, before its permanent attempt marker, artifact directory, browser process, or staging request existed. Optional failed-demo fields now use the strict-mode-safe property helper and have an executable missing-property regression fixture. The consumed zero-external-action invocation remains preserved; a fresh one-shot `DemoReplacementCompletion2` gate must use a different permanent marker and artifact directory while seeding the already-complete smoke evidence.

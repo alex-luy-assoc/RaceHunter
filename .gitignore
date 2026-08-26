@@ -22,6 +22,8 @@ TestResults/
 **/test-results/
 **/playwright-report/
 coverage/
+*.mp4
+docs/architecture/Codex Image Aug 25, 2026, 04_02_28 PM.png
 
 # Terraform local state and provider cache (the dependency lockfile is committed)
 **/.terraform/

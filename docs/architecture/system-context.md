@@ -39,10 +39,19 @@ The staging infrastructure has two Terraform roots. The protected foundation roo
 
 The transition from local bootstrap state to GCS is an explicit operator step after a fresh Foundation approval: materialize the gitignored backend template, execute the descriptor's exact `init -migrate-state` arguments for bootstrap, then configure the application backend with its exact `init -reconfigure` arguments. Application planning materializes the exact reviewed inputs into a gitignored `.tfvars.json`, hashes those bytes, saves the plan, and binds deployment to that saved-plan hash. Any drift requires a new plan and approval.
 
-These are locally validated contracts. No remote bucket, repository, IAM policy, database, revision, or audience has yet been observed by this phase, and collector-image digest resolution is deferred until explicit network authorization.
+The staging release exercised these contracts with immutable image digests,
+saved-plan deployment, route validation, and a deterministic finding/replay
+smoke. Sanitized resource and application evidence is recorded in
+[`docs/demo/staging-evidence.md`](../demo/staging-evidence.md); credentials,
+Terraform state, raw provider output, traces, and browser recordings remain
+outside Git.
 
 ## Correlation path
 
 ASP.NET Core and `HttpClient` OpenTelemetry instrumentation carry W3C context across API → Pub/Sub → worker → target/model/replay calls. RaceHunter spans add correlation tags for work, run, attempt, actor, step, request, model invocation, finding, and artifact identifiers. The same dimensions feed counters and latency histograms. Request logging includes correlation IDs but never bodies, authorization headers, cookies, target credentials, or configured sensitive JSON paths. Terraform mounts a non-secret collector configuration and sets `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` for each service; Google-built sidecars export traces to Cloud Trace and metrics to Managed Service for Prometheus. Compose export remains opt-in.
 
-The same API, worker, and reference-target Dockerfiles are used by Docker Compose and Terraform. Terraform is validated locally without credentials; apply and deployed smoke remain explicit approval gates because they create or contact Google Cloud resources.
+The same API, worker, and reference-target Dockerfiles are used by Docker
+Compose and Terraform. Local validation requires no cloud credentials. Any
+future plan, apply, deployed validation, or smoke remains an explicit,
+environment-bound approval because it can read or change Google Cloud or
+application state.
