@@ -42,6 +42,8 @@ public sealed class PublicReleaseSurfaceTests
         Assert.Contains("dotnet test", workflow, StringComparison.Ordinal);
         Assert.Contains("package-ecosystem: nuget", dependabot, StringComparison.Ordinal);
         Assert.Contains("package-ecosystem: npm", dependabot, StringComparison.Ordinal);
+        Assert.Contains("interval: monthly", dependabot, StringComparison.Ordinal);
+        Assert.Contains("routine-nuget-updates", dependabot, StringComparison.Ordinal);
         Assert.Contains("*.mp4", gitignore, StringComparison.Ordinal);
         Assert.True(File.Exists(Path.Combine(Root, "docs", "architecture", "racehunter-google-cloud.png")));
     }
