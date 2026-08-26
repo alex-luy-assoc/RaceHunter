@@ -171,3 +171,4 @@ if (-not [string]::IsNullOrWhiteSpace($JsonOutputPath)) {
 
 $result | ConvertTo-Json -Depth 10
 if ($uniqueFindings.Count -ne 0) { exit 1 }
+exit 0
