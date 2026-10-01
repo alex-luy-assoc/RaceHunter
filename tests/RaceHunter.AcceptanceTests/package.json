@@ -8,6 +8,6 @@
     "test:staging-demo": "playwright test --config playwright.staging-demo.config.ts"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.1"
+    "@playwright/test": "^1.63.0"
   }
 }
